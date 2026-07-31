@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enum ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  PEMOHON
+  APPROVER
+  ADMIN
+}
+
+/// Tujuan pengajuan. Pemohon memilih salah satu jalur saat membuat pengajuan.
+enum ApproverTrack {
+  DIREKTUR
+  FINANCE
+}
+
+enum RequestType {
+  DANA
+  BARANG
+  REIMBURSEMENT
+}
+
+enum RequestStatus {
+  DRAFT
+  MENUNGGU_APPROVAL
+  REVISI
+  DITOLAK
+  DISETUJUI
+  DICAIRKAN
+  LPJ_MENUNGGU
+  LPJ_DITOLAK
+  SELESAI
+  DIBATALKAN
+}
+
+enum LpjStatus {
+  MENUNGGU
+  DISETUJUI
+  DITOLAK
+}
+
+enum AttachmentKind {
+  PENDUKUNG
+  BUKTI_LPJ
+  BUKTI_TRANSFER
+}
+
+/// Asal data karyawan. HRIS dipakai saat NIP disinkronkan dari project HRIS.
+enum UserSource {
+  MANUAL
+  IMPORT
+  HRIS
+}
+
+// ── Master ──────────────────────────────────────────────────────────────────
+
+model User {
+  id            String         @id @default(cuid())
+  nip           String         @unique
+  name          String
+  email         String?
+  phone         String?
+  position      String?
+  department    String?
+  role          UserRole       @default(PEMOHON)
+  /// Diisi hanya untuk role APPROVER: jalur mana yang ia tangani.
+  approverTrack ApproverTrack?
+  passwordHash  String
+  /// Login pertama dengan password default wajib menggantinya dulu.
+  mustChangePassword Boolean   @default(true)
+  isActive      Boolean        @default(true)
+  source        UserSource     @default(MANUAL)
+  lastLoginAt   DateTime?
+  passwordChangedAt DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  requestsCreated  Request[]      @relation("RequestRequester")
+  requestsAssigned Request[]      @relation("RequestApprover")
+  approvalLogs     ApprovalLog[]
+  lpjSubmitted     Lpj[]          @relation("LpjSubmitter")
+  lpjVerified      Lpj[]          @relation("LpjVerifier")
+  attachments      Attachment[]
+  notifications    Notification[]
+  activities       ActivityLog[]
+
+  @@index([role, isActive])
+  @@index([approverTrack])
+  @@index([department])
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  requests Request[]
+}
+
+// ── Pengajuan ───────────────────────────────────────────────────────────────
+
+model Request {
+  id     String @id @default(cuid())
+  /// Nomor resmi, contoh: SLI/FIN/2026/07/0001
+  number String @unique
+
+  requesterId String
+  requester   User   @relation("RequestRequester", fields: [requesterId], references: [id])
+  approverId  String
+  approver    User   @relation("RequestApprover", fields: [approverId], references: [id])
+
+  track      ApproverTrack
+  type       RequestType   @default(DANA)
+  categoryId String?
+  category   Category?     @relation(fields: [categoryId], references: [id])
+
+  title      String
+  purpose    String    @db.Text
+  neededDate DateTime?
+
+  status      RequestStatus @default(DRAFT)
+  totalAmount Decimal       @default(0) @db.Decimal(18, 2)
+  /// Nominal yang benar-benar disetujui approver (bisa lebih kecil dari pengajuan).
+  approvedAmount Decimal?   @db.Decimal(18, 2)
+
+  bankName          String?
+  bankAccountNumber String?
+  bankAccountHolder String?
+
+  submittedAt     DateTime?
+  decidedAt       DateTime?
+  decisionNote    String?   @db.Text
+  disbursedAt     DateTime?
+  disbursementRef String?
+  disbursementNote String?  @db.Text
+  lpjDueDate      DateTime?
+  completedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       RequestItem[]
+  attachments Attachment[]
+  logs        ApprovalLog[]
+  lpj         Lpj?
+  notifications Notification[]
+
+  @@index([requesterId, status])
+  @@index([approverId, status])
+  @@index([status, createdAt])
+  @@index([track, createdAt])
+  @@index([submittedAt])
+}
+
+model RequestItem {
+  id        String  @id @default(cuid())
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  name      String
+  spec      String?
+  quantity  Decimal @default(1) @db.Decimal(12, 2)
+  unit      String  @default("pcs")
+  unitPrice Decimal @default(0) @db.Decimal(18, 2)
+  subtotal  Decimal @default(0) @db.Decimal(18, 2)
+  note      String?
+  sortOrder Int     @default(0)
+
+  @@index([requestId])
+}
+
+// ── LPJ (Laporan Pertanggungjawaban) ────────────────────────────────────────
+
+model Lpj {
+  id        String  @id @default(cuid())
+  requestId String  @unique
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  submittedById String
+  submittedBy   User   @relation("LpjSubmitter", fields: [submittedById], references: [id])
+
+  totalRealisasi Decimal @default(0) @db.Decimal(18, 2)
+  /// Dana diterima dikurangi realisasi. Positif = sisa dikembalikan, negatif = talangan.
+  sisaDana       Decimal @default(0) @db.Decimal(18, 2)
+  note           String? @db.Text
+
+  status      LpjStatus @default(MENUNGGU)
+  submittedAt DateTime  @default(now())
+
+  verifiedById     String?
+  verifiedBy       User?     @relation("LpjVerifier", fields: [verifiedById], references: [id])
+  verifiedAt       DateTime?
+  verificationNote String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items       LpjItem[]
+  attachments Attachment[]
+
+  @@index([status, submittedAt])
+  @@index([submittedById])
+}
+
+model LpjItem {
+  id    String @id @default(cuid())
+  lpjId String
+  lpj   Lpj    @relation(fields: [lpjId], references: [id], onDelete: Cascade)
+
+  description     String
+  transactionDate DateTime
+  amount          Decimal  @db.Decimal(18, 2)
+  vendor          String?
+  sortOrder       Int      @default(0)
+
+  @@index([lpjId])
+}
+
+// ── Lampiran (Cloudflare R2) ────────────────────────────────────────────────
+
+model Attachment {
+  id   String         @id @default(cuid())
+  kind AttachmentKind
+
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  lpjId     String?
+  lpj       Lpj?     @relation(fields: [lpjId], references: [id], onDelete: Cascade)
+
+  uploadedById String
+  uploadedBy   User   @relation(fields: [uploadedById], references: [id])
+
+  bucket           String
+  objectKey        String @unique
+  originalFilename String
+  mimeType         String
+  fileSize         Int
+
+  createdAt DateTime @default(now())
+
+  @@index([requestId, kind])
+  @@index([lpjId])
+}
+
+// ── Jejak & notifikasi ──────────────────────────────────────────────────────
+
+model ApprovalLog {
+  id        String  @id @default(cuid())
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id])
+
+  action     String
+  fromStatus RequestStatus?
+  toStatus   RequestStatus?
+  note       String?        @db.Text
+  createdAt  DateTime       @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title String
+  body  String @db.Text
+
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+model ActivityLog {
+  id      String  @id @default(cuid())
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id])
+
+  action   String
+  entity   String
+  entityId String?
+  detail   String? @db.Text
+  ip       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
+
+/// Penomoran pengajuan per bulan agar urutannya rapi & tidak bentrok.
+model RequestCounter {
+  /// Format: "2026-07"
+  period     String   @id
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+}
