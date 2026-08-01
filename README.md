@@ -1,48 +1,140 @@
 # SL INDONESIA — Sistem Permohonan Finance
 
-Portal pengajuan dana/barang, approval (Direktur / Finance), pencairan, dan LPJ.
+Aplikasi internal untuk permohonan dana/barang, approval (Direktur / Finance), pencairan, hingga LPJ (Laporan Pertanggungjawaban).
+
+## Fitur
+
+- Login NIP (data karyawan dari HRIS) + wajib ganti password saat pertama masuk
+- Portal **Pemohon**: buat pengajuan, pilih jalur approval, cetak dokumen, upload LPJ
+- Portal **Approval**: antrian pending, setujui/tolak/revisi, pencairan, verifikasi LPJ, grafik dashboard
+- Preview dokumen pengajuan & lampiran (PDF/gambar)
+- Upload file lokal (development) atau Cloudflare R2 (produksi)
 
 ## Stack
 
-- API: Express + Prisma + MySQL (`:3100`)
-- Web: Next.js 15 (`:3000`)
-- Upload: lokal `uploads/` (dev) atau Cloudflare R2 (produksi)
+| Layer | Teknologi |
+|-------|-----------|
+| API | Express, Prisma, MySQL, JWT |
+| Web | Next.js 15, Tailwind CSS, Recharts |
+| Storage | Lokal `uploads/` atau Cloudflare R2 |
 
-## Setup lokal
+## Struktur
 
-```bash
-# 1) DB
-mysql -uroot -p1 -e "CREATE DATABASE IF NOT EXISTS sl_finance;"
-
-# 2) Env
-cp .env.example .env
-# pastikan DEFAULT_PASSWORD=100100
-
-# 3) Schema + seed NIP dari HRIS
-npm install
-npm run hris:extract   # dari /home/loc/dumps/hris.sql (opsional jika JSON sudah ada)
-npx prisma db push
-npm run db:seed
-
-# 4) Jalankan
-npm run dev            # API :3100
-npm run dev:web        # Web :3000
+```
+finance/
+├── src/                 # API Express
+├── prisma/              # Schema, seed, whitelist approver
+├── web/                 # Frontend Next.js
+├── scripts/             # Utilitas (extract HRIS, sync approver, dll)
+└── .env.example         # Template environment
 ```
 
-## Akun uji
+## Setup development
 
-| NIP | Role | Password awal |
-|-----|------|---------------|
-| NIP dari HRIS | Pemohon | `100100` |
-| `DIR001` | Approval Direktur | `100100` |
-| `FIN001` | Approval Finance | `100100` |
-| `ADMIN001` | Admin | `100100` |
+### Prasyarat
 
-Login pertama **wajib ganti password** (minimal 6 karakter, huruf + angka).
+- Node.js 20+
+- MySQL 8+
 
-## Deploy singkat (VPS)
+### Langkah
 
-1. Push repo ke GitHub, pull di VPS
-2. Isi `.env` production (`DATABASE_URL`, `JWT_SECRET`, opsional R2)
-3. `npm install && npx prisma db push && npm run db:seed`
-4. `npm run build && npm start` (API) + `npm run build:web && npm --prefix web start`
+```bash
+# 1. Clone & install
+git clone <url-repo-ini>
+cd finance
+npm install
+npm --prefix web install
+
+# 2. Environment
+cp .env.example .env
+# Edit DATABASE_URL, JWT_SECRET, DEFAULT_PASSWORD, dll.
+
+# 3. Database
+mysql -u <user> -p -e "CREATE DATABASE IF NOT EXISTS sl_finance CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+npx prisma db push
+
+# 4. (Opsional) Import NIP dari dump HRIS
+# npm run hris:extract -- /path/ke/hris.sql
+npm run db:seed
+npm run approvers:sync
+
+# 5. Jalankan
+npm run dev          # API  → http://localhost:3100
+npm run dev:web      # Web  → http://localhost:3000
+```
+
+Web mem-proxy `/api/*` ke API (lihat `web/.env.local` / `API_URL`).
+
+## Environment
+
+Salin dari `.env.example`. Yang wajib diisi:
+
+| Variabel | Keterangan |
+|----------|------------|
+| `DATABASE_URL` | Koneksi MySQL Prisma |
+| `JWT_SECRET` | Secret JWT (minimal 32 karakter, beda tiap environment) |
+| `DEFAULT_PASSWORD` | Password awal akun baru / hasil seed |
+| `R2_*` | Opsional; jika kosong, file disimpan di folder `uploads/` |
+
+Jangan commit file `.env`.
+
+## Role & whitelist Approval
+
+- Default karyawan hasil seed = **Pemohon**
+- NIP yang boleh masuk portal Approval diatur di `prisma/whitelist-approvers.ts`
+- Setelah mengubah whitelist: `npm run approvers:sync`
+
+## Alur pengajuan (ringkas)
+
+1. Pemohon login → ganti password → buat pengajuan → pilih jalur (Direktur / Finance)
+2. Approver setujui / tolak / minta revisi
+3. Approver cairkan dana (+ bukti transfer)
+4. Pemohon upload LPJ
+5. Approver verifikasi LPJ → selesai
+
+## Scripts
+
+| Command | Fungsi |
+|---------|--------|
+| `npm run dev` | API development |
+| `npm run dev:web` | Web development |
+| `npm run build` / `build:web` | Build production |
+| `npm start` | Jalankan API hasil build |
+| `npm run db:push` | Sinkron schema Prisma → MySQL |
+| `npm run db:seed` | Seed kategori + import NIP HRIS |
+| `npm run approvers:sync` | Terapkan whitelist Approval |
+| `npm run hris:extract` | Ekstrak NIP dari dump SQL HRIS |
+
+## Deploy (VPS)
+
+1. Pull repo di server
+2. Siapkan `.env` production (DB, `JWT_SECRET`, R2 bila dipakai)
+3. Install & migrate:
+
+```bash
+npm install
+npm --prefix web install
+npx prisma db push
+npm run db:seed
+npm run approvers:sync
+```
+
+4. Build & jalankan (disarankan di belakang process manager / reverse proxy):
+
+```bash
+npm run build && npm start
+npm run build:web && npm --prefix web start
+```
+
+Pastikan firewall / Nginx mem-proxy web dan API sesuai kebutuhan.
+
+## Keamanan
+
+- Repo ini untuk penggunaan internal perusahaan
+- Ganti `JWT_SECRET` dan password default sebelum production
+- Batasi akses database & jangan expose MySQL ke publik
+- Whitelist Approval hanya berisi NIP yang berwenang
+
+## Lisensi
+
+Private / internal — SL INDONESIA.

@@ -1,9 +1,14 @@
 node_modules/
 dist/
 .env
+.env.local
+web/.env.local
 *.log
 .DS_Store
 uploads/
 web/.next/
 web/node_modules/
 web/out/
+*.dump.sql
+*.sql.gz
+prisma/data/hris-employees.json

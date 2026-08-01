@@ -1,7 +1,8 @@
-import { ApproverTrack, PrismaClient, UserRole, UserSource } from "@prisma/client";
+import { PrismaClient, UserRole, UserSource } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
+import { APPROVER_WHITELIST, LEGACY_TEST_NIPS } from "./whitelist-approvers";
 
 const prisma = new PrismaClient();
 
@@ -16,6 +17,45 @@ type HrisEmployee = {
 };
 
 const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || "100100";
+
+async function applyApproverWhitelist() {
+  for (const row of APPROVER_WHITELIST) {
+    const existing = await prisma.user.findUnique({ where: { nip: row.nip } });
+    if (!existing) {
+      console.warn(`  ! NIP whitelist belum ada di DB: ${row.nip} (${row.nameHint})`);
+      continue;
+    }
+    await prisma.user.update({
+      where: { nip: row.nip },
+      data: {
+        role: row.role,
+        approverTrack: row.approverTrack,
+        isActive: true,
+      },
+    });
+    console.log(
+      `  ✓ ${row.nip} → ${row.role}${row.approverTrack ? ` / ${row.approverTrack}` : ""} (${existing.name})`
+    );
+  }
+}
+
+async function removeLegacyTestUsers() {
+  const legacy = await prisma.user.findMany({
+    where: { nip: { in: [...LEGACY_TEST_NIPS] } },
+    select: { id: true, nip: true },
+  });
+  if (legacy.length === 0) return;
+
+  const ids = legacy.map((u) => u.id);
+  // Hapus pengajuan yang terkait akun uji agar FK tidak menghalangi.
+  await prisma.request.deleteMany({
+    where: {
+      OR: [{ requesterId: { in: ids } }, { approverId: { in: ids } }],
+    },
+  });
+  await prisma.user.deleteMany({ where: { id: { in: ids } } });
+  console.log(`Akun uji dihapus: ${legacy.map((u) => u.nip).join(", ")}`);
+}
 
 async function main() {
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
@@ -37,104 +77,55 @@ async function main() {
     });
   }
 
-  const systemUsers = [
-    {
-      nip: "ADMIN001",
-      name: "Administrator Finance",
-      role: UserRole.ADMIN,
-      approverTrack: null as ApproverTrack | null,
-      position: "Admin Sistem",
-      department: "IT",
-    },
-    {
-      nip: "DIR001",
-      name: "Direktur SL Indonesia",
-      role: UserRole.APPROVER,
-      approverTrack: ApproverTrack.DIREKTUR,
-      position: "Direktur",
-      department: "Direksi",
-    },
-    {
-      nip: "FIN001",
-      name: "Finance Manager",
-      role: UserRole.APPROVER,
-      approverTrack: ApproverTrack.FINANCE,
-      position: "Finance Manager",
-      department: "Finance",
-    },
-  ];
-
-  for (const user of systemUsers) {
-    await prisma.user.upsert({
-      where: { nip: user.nip },
-      create: {
-        nip: user.nip,
-        name: user.name,
-        role: user.role,
-        approverTrack: user.approverTrack,
-        position: user.position,
-        department: user.department,
-        passwordHash,
-        mustChangePassword: true,
-        isActive: true,
-        source: UserSource.MANUAL,
-      },
-      update: {
-        name: user.name,
-        role: user.role,
-        approverTrack: user.approverTrack,
-        position: user.position,
-        department: user.department,
-        passwordHash,
-        mustChangePassword: true,
-        isActive: true,
-      },
-    });
-  }
+  await removeLegacyTestUsers();
 
   const dataPath = path.resolve(__dirname, "data/hris-employees.json");
   if (!fs.existsSync(dataPath)) {
     console.warn(`File ${dataPath} tidak ditemukan. Skip import NIP HRIS.`);
     console.warn("Jalankan: npm run hris:extract");
-    return;
+  } else {
+    const employees = JSON.parse(fs.readFileSync(dataPath, "utf8")) as HrisEmployee[];
+    const rows = employees
+      .map((emp) => ({
+        nip: String(emp.nip || "").trim(),
+        name: String(emp.name || "").trim(),
+        email: emp.email || null,
+        phone: emp.phone || null,
+        position: emp.position || null,
+        department: emp.department || null,
+        role: UserRole.PEMOHON,
+        passwordHash,
+        mustChangePassword: true,
+        isActive: emp.isActive !== false,
+        source: UserSource.HRIS,
+      }))
+      .filter((emp) => emp.nip && emp.name);
+
+    console.log(`Mengimpor ${rows.length} NIP dari HRIS (createMany, skipDuplicates)...`);
+
+    const batchSize = 500;
+    let inserted = 0;
+    for (let i = 0; i < rows.length; i += batchSize) {
+      const batch = rows.slice(i, i + batchSize);
+      const result = await prisma.user.createMany({
+        data: batch,
+        skipDuplicates: true,
+      });
+      inserted += result.count;
+      process.stdout.write(`\r  progress ${Math.min(i + batchSize, rows.length)}/${rows.length}`);
+    }
+    console.log(`\nBaris baru dimasukkan: ${inserted}`);
   }
 
-  const employees = JSON.parse(fs.readFileSync(dataPath, "utf8")) as HrisEmployee[];
-  const reserved = new Set(systemUsers.map((u) => u.nip));
-  const rows = employees
-    .map((emp) => ({
-      nip: String(emp.nip || "").trim(),
-      name: String(emp.name || "").trim(),
-      email: emp.email || null,
-      phone: emp.phone || null,
-      position: emp.position || null,
-      department: emp.department || null,
-      role: UserRole.PEMOHON,
-      passwordHash,
-      mustChangePassword: true,
-      isActive: emp.isActive !== false,
-      source: UserSource.HRIS,
-    }))
-    .filter((emp) => emp.nip && emp.name && !reserved.has(emp.nip));
-
-  console.log(`Mengimpor ${rows.length} NIP dari HRIS (createMany, skipDuplicates)...`);
-
-  const batchSize = 500;
-  let inserted = 0;
-  for (let i = 0; i < rows.length; i += batchSize) {
-    const batch = rows.slice(i, i + batchSize);
-    const result = await prisma.user.createMany({
-      data: batch,
-      skipDuplicates: true,
-    });
-    inserted += result.count;
-    process.stdout.write(`\r  progress ${Math.min(i + batchSize, rows.length)}/${rows.length}`);
-  }
+  console.log("Menerapkan whitelist Approval / Admin...");
+  await applyApproverWhitelist();
 
   const total = await prisma.user.count();
-  console.log(`\nBaris baru dimasukkan: ${inserted}. Total user di DB: ${total}`);
-  console.log("Akun uji approval: DIR001, FIN001, ADMIN001 — password:", DEFAULT_PASSWORD);
-  console.log("Pemohon: login pakai NIP HRIS + password yang sama (wajib ganti saat pertama).");
+  const approvers = await prisma.user.count({
+    where: { role: { in: [UserRole.APPROVER, UserRole.ADMIN] } },
+  });
+  console.log(`Total user: ${total}. Role Approval/Admin: ${approvers}`);
+  console.log("Password awal semua akun:", DEFAULT_PASSWORD, "(wajib ganti saat login pertama)");
 }
 
 main()
