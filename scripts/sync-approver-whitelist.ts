@@ -1,5 +1,9 @@
 import { PrismaClient, UserRole } from "@prisma/client";
-import { APPROVER_WHITELIST, LEGACY_TEST_NIPS } from "../prisma/whitelist-approvers";
+import {
+  APPROVER_WHITELIST,
+  DEMOTED_FROM_APPROVER_NIPS,
+  LEGACY_TEST_NIPS,
+} from "../prisma/whitelist-approvers";
 
 const prisma = new PrismaClient();
 
@@ -36,6 +40,13 @@ async function main() {
     console.log(`Whitelist ${u.nip} | ${u.name} | ${u.role} | ${u.approverTrack}`);
   }
 
+  // Turunkan Farhan, Handoyo, dll. agar tidak muncul di dropdown tujuan.
+  const demotedNamed = await prisma.user.updateMany({
+    where: { nip: { in: [...DEMOTED_FROM_APPROVER_NIPS] } },
+    data: { role: UserRole.PEMOHON, approverTrack: null },
+  });
+  console.log("Diturunkan ke Pemohon (Farhan/Handoyo):", demotedNamed.count);
+
   const demoted = await prisma.user.updateMany({
     where: {
       role: { in: [UserRole.APPROVER, UserRole.ADMIN] },
@@ -44,6 +55,16 @@ async function main() {
     data: { role: UserRole.PEMOHON, approverTrack: null },
   });
   console.log("Demoted non-whitelist approvers:", demoted.count);
+
+  const dropdown = await prisma.user.findMany({
+    where: { role: UserRole.APPROVER, isActive: true },
+    select: { nip: true, name: true, approverTrack: true },
+    orderBy: { approverTrack: "asc" },
+  });
+  console.log("Opsi 'pengajuan kepada' sekarang:");
+  for (const a of dropdown) {
+    console.log(`  - ${a.approverTrack}: ${a.name} (${a.nip})`);
+  }
 }
 
 main()
