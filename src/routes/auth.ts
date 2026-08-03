@@ -61,12 +61,7 @@ authRouter.post(
         "Akun ini terdaftar sebagai Pemohon. Silakan masuk lewat pintu Pemohon."
       );
     }
-    if (portal === "PEMOHON" && user.role === UserRole.APPROVER) {
-      throw new HttpError(
-        403,
-        "Akun ini terdaftar sebagai Approval. Silakan masuk lewat pintu Approval."
-      );
-    }
+    // APPROVER / ADMIN boleh masuk portal Pemohon juga (untuk mengajukan dana).
 
     await prisma.user.update({
       where: { id: user.id },

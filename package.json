@@ -16,6 +16,7 @@
     "db:studio": "prisma studio",
     "hris:extract": "tsx scripts/extract-hris-nip.ts",
     "approvers:sync": "tsx scripts/sync-approver-whitelist.ts",
+    "requests:delete-by-nip": "tsx scripts/delete-requests-by-nip.ts",
     "db:dump": "mysqldump --databases sl_finance --single-transaction --routines --triggers > sl_finance.dump.sql && ls -lh sl_finance.dump.sql",
     "test": "vitest run",
     "test:watch": "vitest"

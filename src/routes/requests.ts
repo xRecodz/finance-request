@@ -60,6 +60,8 @@ const listQuerySchema = z.object({
   type: z.nativeEnum(RequestType).optional(),
   requesterId: z.string().optional(),
   approverId: z.string().optional(),
+  /** requester = pengajuan yang saya buat; approver = yang ditujukan ke saya */
+  as: z.enum(["requester", "approver"]).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   q: z.string().trim().optional(),
@@ -93,7 +95,14 @@ function computeItems(items: z.infer<typeof itemSchema>[]) {
  * Approver yang dipilih harus memang approver aktif dan jalurnya cocok
  * dengan pilihan "kepada siapa" di form.
  */
-async function assertApproverValid(approverId: string, track: ApproverTrack) {
+async function assertApproverValid(
+  approverId: string,
+  track: ApproverTrack,
+  actorId: string
+) {
+  if (approverId === actorId) {
+    throw new HttpError(400, "Tidak dapat mengajukan kepada diri sendiri");
+  }
   const approver = await prisma.user.findUnique({ where: { id: approverId } });
   if (!approver || !approver.isActive || approver.role !== UserRole.APPROVER) {
     throw new HttpError(400, "Tujuan approval tidak valid");
@@ -138,20 +147,14 @@ requestsRouter.get(
 
     const where: Prisma.RequestWhereInput = {};
 
-    if (user.role === UserRole.PEMOHON) {
+    // Portal pemohon mengirim as=requester (termasuk jika user role-nya APPROVER).
+    if (query.as === "requester" || user.role === UserRole.PEMOHON) {
       where.requesterId = user.id;
     } else if (user.role === UserRole.APPROVER) {
       where.approverId = user.id;
     } else {
       if (query.requesterId) where.requesterId = query.requesterId;
       if (query.approverId) where.approverId = query.approverId;
-    }
-
-    // Admin boleh memfilter bebas; pemohon/approver tetap terkunci pada dirinya.
-    if (user.role !== UserRole.ADMIN) {
-      if (query.requesterId && user.role === UserRole.APPROVER) {
-        where.requesterId = query.requesterId;
-      }
     }
 
     if (query.status) {
@@ -219,11 +222,7 @@ requestsRouter.post(
     const body = requestBodySchema.parse(req.body);
     const user = req.user!;
 
-    if (user.role === UserRole.APPROVER) {
-      throw new HttpError(403, "Akun approval tidak dapat membuat pengajuan");
-    }
-
-    await assertApproverValid(body.approverId, body.track);
+    await assertApproverValid(body.approverId, body.track, user.id);
     const { prepared, total } = computeItems(body.items);
 
     const created = await prisma.$transaction(async (tx) => {
@@ -297,7 +296,7 @@ requestsRouter.patch(
       );
     }
 
-    await assertApproverValid(body.approverId, body.track);
+    await assertApproverValid(body.approverId, body.track, req.user!.id);
     const { prepared, total } = computeItems(body.items);
     const submitting = body.submit;
 

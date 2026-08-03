@@ -28,7 +28,7 @@ export function formatDateTime(value?: string | null): string {
 }
 
 export function trackLabel(track: string): string {
-  return track === "DIREKTUR" ? "Direktur" : "Finance";
+  return track === "DIREKTUR" ? "Bu Sari" : "Finance";
 }
 
 export function statusTone(status: string): string {

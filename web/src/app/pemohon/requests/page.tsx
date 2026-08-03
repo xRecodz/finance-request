@@ -17,6 +17,7 @@ export default function PemohonRequestsPage() {
     if (q) params.set("q", q);
     if (status) params.set("status", status);
     params.set("pageSize", "50");
+    params.set("as", "requester");
     void api<{ data: RequestRow[] }>(`/api/requests?${params}`).then((res) => setRows(res.data));
   }, [q, status]);
 

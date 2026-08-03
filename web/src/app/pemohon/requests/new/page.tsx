@@ -19,7 +19,7 @@ export default function NewRequestPage() {
   const router = useRouter();
   const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [track, setTrack] = useState<ApproverTrack>("FINANCE");
+  const [track, setTrack] = useState<ApproverTrack>("DIREKTUR");
   const [approverId, setApproverId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [title, setTitle] = useState("");
@@ -127,8 +127,8 @@ export default function NewRequestPage() {
             value={track}
             onChange={(e) => setTrack(e.target.value as ApproverTrack)}
           >
+            <option value="DIREKTUR">Bu Sari</option>
             <option value="FINANCE">Finance</option>
-            <option value="DIREKTUR">Direktur</option>
           </select>
         </label>
         <label className="block">

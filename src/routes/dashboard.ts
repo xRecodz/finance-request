@@ -23,6 +23,7 @@ dashboardRouter.use(requireAuth, requirePasswordChanged);
 const rangeSchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
+  as: z.enum(["requester", "approver"]).optional(),
 });
 
 function endOfDay(date: Date): Date {
@@ -31,10 +32,18 @@ function endOfDay(date: Date): Date {
   return copy;
 }
 
-function scopeWhere(user: AuthedRequest["user"], from?: Date, to?: Date): Prisma.RequestWhereInput {
+function scopeWhere(
+  user: AuthedRequest["user"],
+  from?: Date,
+  to?: Date,
+  as?: "requester" | "approver"
+): Prisma.RequestWhereInput {
   const where: Prisma.RequestWhereInput = {};
-  if (user!.role === UserRole.PEMOHON) where.requesterId = user!.id;
-  else if (user!.role === UserRole.APPROVER) where.approverId = user!.id;
+  if (as === "requester" || user!.role === UserRole.PEMOHON) {
+    where.requesterId = user!.id;
+  } else if (user!.role === UserRole.APPROVER) {
+    where.approverId = user!.id;
+  }
 
   if (from || to) {
     where.createdAt = {
@@ -48,9 +57,10 @@ function scopeWhere(user: AuthedRequest["user"], from?: Date, to?: Date): Prisma
 dashboardRouter.get(
   "/summary",
   asyncHandler<AuthedRequest>(async (req, res) => {
-    const { from, to } = rangeSchema.parse(req.query);
+    const { from, to, as } = rangeSchema.parse(req.query);
     const user = req.user!;
-    const where = scopeWhere(user, from, to);
+    const where = scopeWhere(user, from, to, as);
+    const asRequester = as === "requester" || user.role === UserRole.PEMOHON;
 
     const [byStatus, amountAgg, pendingCount, historyPeers] = await Promise.all([
       prisma.request.groupBy({
@@ -73,7 +83,7 @@ dashboardRouter.get(
           status: { in: PENDING_APPROVAL_STATUSES },
         },
       }),
-      user.role === UserRole.APPROVER || user.role === UserRole.ADMIN
+      !asRequester && (user.role === UserRole.APPROVER || user.role === UserRole.ADMIN)
         ? prisma.request.groupBy({
             by: ["requesterId"],
             where: {

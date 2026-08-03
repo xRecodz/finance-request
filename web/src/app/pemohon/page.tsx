@@ -23,8 +23,8 @@ export default function PemohonDashboard() {
 
   useEffect(() => {
     void Promise.all([
-      api<{ data: DashboardSummary }>("/api/dashboard/summary"),
-      api<{ data: RequestRow[] }>("/api/requests?pageSize=5"),
+      api<{ data: DashboardSummary }>("/api/dashboard/summary?as=requester"),
+      api<{ data: RequestRow[] }>("/api/requests?as=requester&pageSize=5"),
     ]).then(([s, r]) => {
       setSummary(s.data);
       setRecent(r.data);
