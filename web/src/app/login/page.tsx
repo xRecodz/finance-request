@@ -6,11 +6,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
-import type { Portal } from "@/lib/types";
+import { homePathForRole, type Portal } from "@/lib/types";
+
+function parsePortal(value: string | null): Portal {
+  if (value === "APPROVAL" || value === "IT") return value;
+  return "PEMOHON";
+}
 
 function LoginForm() {
   const params = useSearchParams();
-  const portal = (params.get("portal") === "APPROVAL" ? "APPROVAL" : "PEMOHON") as Portal;
+  const portal = parsePortal(params.get("portal"));
   const { login } = useAuth();
   const router = useRouter();
   const [nip, setNip] = useState("");
@@ -18,10 +23,11 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const title = useMemo(
-    () => (portal === "APPROVAL" ? "Portal Approval" : "Portal Pemohon"),
-    [portal]
-  );
+  const title = useMemo(() => {
+    if (portal === "APPROVAL") return "Portal Approval";
+    if (portal === "IT") return "Portal IT";
+    return "Portal Pemohon";
+  }, [portal]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -30,7 +36,7 @@ function LoginForm() {
     try {
       const user = await login(nip.trim(), password, portal);
       if (user.mustChangePassword) router.replace("/change-password");
-      else router.replace(portal === "APPROVAL" ? "/approval" : "/pemohon");
+      else router.replace(homePathForRole(user.role));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login gagal");
     } finally {
@@ -49,7 +55,11 @@ function LoginForm() {
           SL INDONESIA
         </Link>
         <h1 className="mt-4 text-2xl font-bold text-sli-ink">{title}</h1>
-        <p className="mt-1 text-sm text-sli-muted">Masuk dengan NIP yang terdaftar di HRIS.</p>
+        <p className="mt-1 text-sm text-sli-muted">
+          {portal === "IT"
+            ? "Masuk dengan akun IT untuk mengelola user."
+            : "Masuk dengan NIP yang terdaftar di HRIS."}
+        </p>
 
         <form onSubmit={onSubmit} className="mt-7 space-y-4">
           <label className="block">

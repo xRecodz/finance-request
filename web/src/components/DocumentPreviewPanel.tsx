@@ -85,8 +85,8 @@ export function DocumentPreviewPanel({ data }: { data: RequestRow }) {
       </div>
 
       {tab === "form" ? (
-        <div className="max-h-[75vh] overflow-auto bg-[#ece4e6] p-4 md:p-6">
-          <div className="mx-auto origin-top scale-[0.98] rounded-sm bg-white p-6 shadow-xl shadow-black/15 md:p-8">
+        <div className="max-h-[75vh] overflow-auto bg-[#ece4e6] p-3 md:p-4">
+          <div className="print-frame mx-auto max-w-[190mm] rounded-sm bg-white p-4 shadow-xl shadow-black/15 md:p-5">
             <RequestDocumentSheet data={data} />
           </div>
         </div>

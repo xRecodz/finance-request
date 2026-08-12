@@ -22,6 +22,12 @@ export const APPROVER_WHITELIST: Array<{
     role: UserRole.APPROVER,
     approverTrack: ApproverTrack.FINANCE,
   },
+  {
+    nip: "1906.0.96.05580",
+    nameHint: "Resi Kurnia (Finance)",
+    role: UserRole.APPROVER,
+    approverTrack: ApproverTrack.FINANCE,
+  },
 ];
 
 /** NIP yang sebelumnya approval dan harus diturunkan ke Pemohon. */

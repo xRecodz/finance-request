@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, ShieldCheck, FileSpreadsheet } from "lucide-react";
+import { ArrowRight, ShieldCheck, FileSpreadsheet, MonitorCog } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { homePathForRole } from "@/lib/types";
 
 export default function HomePage() {
   const { user, loading } = useAuth();
@@ -17,7 +18,7 @@ export default function HomePage() {
       router.replace("/change-password");
       return;
     }
-    router.replace(user.role === "APPROVER" || user.role === "ADMIN" ? "/approval" : "/pemohon");
+    router.replace(homePathForRole(user.role));
   }, [user, loading, router]);
 
   return (
@@ -63,7 +64,7 @@ export default function HomePage() {
           />
         </motion.div>
 
-        <div className="grid gap-4 md:grid-cols-2 md:gap-6">
+        <div className="grid gap-4 md:grid-cols-3 md:gap-5">
           <PortalCard
             href="/login?portal=PEMOHON"
             icon={<FileSpreadsheet className="text-sli-red" size={28} />}
@@ -77,6 +78,13 @@ export default function HomePage() {
             title="Approval"
             desc="Tinjau antrian pending, setujui nominal, cairkan dana, dan verifikasi LPJ."
             delay={0.28}
+          />
+          <PortalCard
+            href="/login?portal=IT"
+            icon={<MonitorCog className="text-sli-red" size={28} />}
+            title="Portal IT"
+            desc="Kelola akun karyawan: tambah user, edit profil, aktif/nonaktif, reset password."
+            delay={0.4}
           />
         </div>
 

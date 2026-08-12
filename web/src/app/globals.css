@@ -247,15 +247,47 @@ table.data th {
   outline-offset: 2px;
 }
 
+/* Lembar dokumen: target ~setengah tinggi A4 (screen + print). */
+.print-sheet {
+  width: 100%;
+  max-width: 190mm;
+  box-sizing: border-box;
+}
+
 @media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+  }
+
   .no-print {
     display: none !important;
   }
   .batik-bg {
     background: white !important;
   }
+
+  /* Isi formulir padat agar muat di ~½ halaman A4. */
   .print-sheet {
     box-shadow: none !important;
     border: none !important;
+    max-width: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    font-size: 10pt;
+  }
+
+  .print-frame {
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+    border-radius: 0 !important;
   }
 }

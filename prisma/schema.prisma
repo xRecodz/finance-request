@@ -13,6 +13,7 @@ enum UserRole {
   PEMOHON
   APPROVER
   ADMIN
+  IT
 }
 
 /// Tujuan pengajuan. Pemohon memilih salah satu jalur saat membuat pengajuan.

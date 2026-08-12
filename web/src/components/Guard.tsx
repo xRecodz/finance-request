@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import type { UserRole } from "@/lib/types";
+import { homePathForRole, type UserRole } from "@/lib/types";
 
 export function Guard({
   roles,
@@ -26,7 +26,7 @@ export function Guard({
       return;
     }
     if (!roles.includes(user.role)) {
-      router.replace(user.role === "APPROVER" || user.role === "ADMIN" ? "/approval" : "/pemohon");
+      router.replace(homePathForRole(user.role));
     }
   }, [user, loading, roles, router]);
 

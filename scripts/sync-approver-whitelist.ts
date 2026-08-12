@@ -1,4 +1,5 @@
-import { PrismaClient, UserRole } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { PrismaClient, UserRole, UserSource } from "@prisma/client";
 import {
   APPROVER_WHITELIST,
   DEMOTED_FROM_APPROVER_NIPS,
@@ -6,6 +7,7 @@ import {
 } from "../prisma/whitelist-approvers";
 
 const prisma = new PrismaClient();
+const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || "100100";
 
 async function main() {
   const legacy = await prisma.user.findMany({
@@ -28,7 +30,30 @@ async function main() {
     console.log("Tidak ada akun uji DIR001/FIN001/ADMIN001.");
   }
 
+  const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+
   for (const row of APPROVER_WHITELIST) {
+    const existing = await prisma.user.findUnique({ where: { nip: row.nip } });
+    if (!existing) {
+      const name = row.nameHint.replace(/\s*\([^)]*\)\s*/g, "").trim() || row.nameHint;
+      const created = await prisma.user.create({
+        data: {
+          nip: row.nip,
+          name,
+          role: row.role,
+          approverTrack: row.approverTrack,
+          passwordHash,
+          mustChangePassword: true,
+          isActive: true,
+          source: UserSource.MANUAL,
+        },
+      });
+      console.log(
+        `Created+whitelist ${created.nip} | ${created.name} | ${created.role} | ${created.approverTrack} (password default)`
+      );
+      continue;
+    }
+
     const u = await prisma.user.update({
       where: { nip: row.nip },
       data: {

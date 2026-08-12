@@ -20,7 +20,7 @@ const loginSchema = z.object({
   nip: z.string().trim().min(1, "NIP wajib diisi"),
   password: z.string().min(1, "Password wajib diisi"),
   /** Pintu masuk yang dipilih user di halaman depan. */
-  portal: z.enum(["PEMOHON", "APPROVAL"]).optional(),
+  portal: z.enum(["PEMOHON", "APPROVAL", "IT"]).optional(),
 });
 
 function toAuthUser(user: {
@@ -59,6 +59,18 @@ authRouter.post(
       throw new HttpError(
         403,
         "Akun ini terdaftar sebagai Pemohon. Silakan masuk lewat pintu Pemohon."
+      );
+    }
+    if (portal === "IT" && user.role !== UserRole.IT && user.role !== UserRole.ADMIN) {
+      throw new HttpError(403, "Akun ini tidak memiliki akses portal IT.");
+    }
+    if (
+      (portal === "PEMOHON" || portal === "APPROVAL") &&
+      user.role === UserRole.IT
+    ) {
+      throw new HttpError(
+        403,
+        "Akun IT silakan masuk lewat pintu Portal IT."
       );
     }
     // APPROVER / ADMIN boleh masuk portal Pemohon juga (untuk mengajukan dana).

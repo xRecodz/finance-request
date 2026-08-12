@@ -1,7 +1,32 @@
-export type Portal = "PEMOHON" | "APPROVAL";
+export type Portal = "PEMOHON" | "APPROVAL" | "IT";
 
-export type UserRole = "PEMOHON" | "APPROVER" | "ADMIN";
+export type UserRole = "PEMOHON" | "APPROVER" | "ADMIN" | "IT";
 export type ApproverTrack = "DIREKTUR" | "FINANCE";
+
+export function homePathForRole(role: UserRole): string {
+  if (role === "IT") return "/it";
+  if (role === "APPROVER" || role === "ADMIN") return "/approval";
+  return "/pemohon";
+}
+
+export type ManagedUser = {
+  id: string;
+  nip: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  position: string | null;
+  department: string | null;
+  role: UserRole;
+  approverTrack: ApproverTrack | null;
+  mustChangePassword: boolean;
+  isActive: boolean;
+  source: string;
+  lastLoginAt: string | null;
+  passwordChangedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type AuthUser = {
   id: string;

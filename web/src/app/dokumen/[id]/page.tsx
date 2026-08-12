@@ -34,7 +34,7 @@ function DokumenContent() {
 
   return (
     <div className="min-h-screen bg-[#e8e0e2] px-3 py-6 md:px-6">
-      <div className="no-print mx-auto mb-4 flex max-w-[794px] flex-wrap gap-2">
+      <div className="no-print mx-auto mb-4 flex max-w-[190mm] flex-wrap gap-2">
         <button
           type="button"
           className="btn-primary rounded-lg px-4 py-2 text-sm font-semibold"
@@ -50,7 +50,7 @@ function DokumenContent() {
           Tutup
         </button>
       </div>
-      <div className="mx-auto max-w-[794px] rounded-sm bg-white p-6 shadow-2xl md:p-10">
+      <div className="print-frame mx-auto max-w-[190mm] rounded-sm bg-white p-4 shadow-2xl md:p-5">
         <RequestDocumentSheet data={data} />
       </div>
     </div>

@@ -10,6 +10,7 @@ import { dashboardRouter } from "./routes/dashboard";
 import { lpjRouter } from "./routes/lpj";
 import { metaRouter } from "./routes/meta";
 import { requestsRouter } from "./routes/requests";
+import { usersRouter } from "./routes/users";
 
 export function createApp() {
   const app = express();
@@ -42,6 +43,7 @@ export function createApp() {
   app.use("/api/requests", requestsRouter);
   app.use("/api/approvals", approvalsRouter);
   app.use("/api/attachments", attachmentsRouter);
+  app.use("/api/users", usersRouter);
   app.use("/api", lpjRouter);
 
   app.use(notFoundHandler);

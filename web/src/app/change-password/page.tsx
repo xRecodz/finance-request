@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
+import { homePathForRole } from "@/lib/types";
 
 export default function ChangePasswordPage() {
   const { user, loading, changePassword } = useAuth();
@@ -25,9 +26,7 @@ export default function ChangePasswordPage() {
     setSaving(true);
     try {
       await changePassword(currentPassword, newPassword, confirmPassword);
-      router.replace(
-        user?.role === "APPROVER" || user?.role === "ADMIN" ? "/approval" : "/pemohon"
-      );
+      router.replace(user ? homePathForRole(user.role) : "/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mengganti password");
     } finally {
