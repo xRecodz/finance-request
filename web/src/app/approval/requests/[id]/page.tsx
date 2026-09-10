@@ -106,7 +106,7 @@ export default function ApprovalDetailPage() {
         <Box label="Dikirim" value={formatDateTime(data.submittedAt)} />
       </div>
 
-      <DocumentPreviewPanel data={data} />
+      <DocumentPreviewPanel data={data} onChanged={() => void load()} />
 
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
 

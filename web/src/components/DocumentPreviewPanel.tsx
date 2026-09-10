@@ -1,18 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, FileText, Paperclip, Printer } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ExternalLink, FileText, Paperclip, Printer, Trash2, Upload } from "lucide-react";
 import { AttachmentPreview, AttachmentThumb } from "@/components/AttachmentPreview";
 import { RequestDocumentSheet } from "@/components/RequestDocumentSheet";
+import { api, ApiError, getToken } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import type { RequestRow } from "@/lib/types";
 
 type Tab = "form" | "file";
+
+type FileRow = {
+  id: string;
+  originalFilename: string;
+  mimeType?: string;
+  kind: string;
+  label: string;
+};
 
 /**
  * Panel preview dokumen pengajuan (lembar PDF-like) + lampiran pendukung.
  * Dipakai di halaman detail approval / pemohon.
  */
-export function DocumentPreviewPanel({ data }: { data: RequestRow }) {
+export function DocumentPreviewPanel({
+  data,
+  onChanged,
+}: {
+  data: RequestRow;
+  onChanged?: () => void;
+}) {
+  const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const attachments = useMemo(
     () =>
       (data.attachments || []).filter((f) =>
@@ -21,14 +39,67 @@ export function DocumentPreviewPanel({ data }: { data: RequestRow }) {
     [data.attachments]
   );
   const lpjFiles = data.lpj?.attachments || [];
-  const allFiles = [
+  const allFiles: FileRow[] = [
     ...attachments.map((f) => ({ ...f, label: f.kind })),
-    ...lpjFiles.map((f) => ({ ...f, kind: f.kind || "BUKTI_LPJ", label: "BUKTI_LPJ" })),
+    ...lpjFiles.map((f) => ({
+      id: f.id,
+      originalFilename: f.originalFilename,
+      mimeType: f.mimeType,
+      kind: f.kind || "BUKTI_LPJ",
+      label: "BUKTI_LPJ",
+    })),
   ];
 
   const [tab, setTab] = useState<Tab>("form");
   const [fileId, setFileId] = useState<string | null>(allFiles[0]?.id ?? null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const activeFile = allFiles.find((f) => f.id === fileId) || allFiles[0] || null;
+
+  const isRequester = user?.id === data.requester.id;
+  const canManagePendukung =
+    isRequester && ["DRAFT", "REVISI"].includes(data.status);
+
+  async function uploadFiles(files: FileList | null) {
+    if (!files?.length) return;
+    setError("");
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      Array.from(files).forEach((f) => fd.append("files", f));
+      const headers = new Headers();
+      const token = getToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(`/api/requests/${data.id}/attachments`, {
+        method: "POST",
+        headers,
+        body: fd,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ApiError(json.error || "Gagal unggah", res.status);
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal unggah");
+    } finally {
+      setBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function removeFile(id: string) {
+    if (!window.confirm("Hapus lampiran ini?")) return;
+    setError("");
+    setBusy(true);
+    try {
+      await api(`/api/attachments/${id}`, { method: "DELETE" });
+      if (fileId === id) setFileId(null);
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Gagal menghapus");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="panel overflow-hidden rounded-2xl">
@@ -84,6 +155,10 @@ export function DocumentPreviewPanel({ data }: { data: RequestRow }) {
         </button>
       </div>
 
+      {error ? (
+        <div className="mx-4 mt-3 rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div>
+      ) : null}
+
       {tab === "form" ? (
         <div className="max-h-[75vh] overflow-auto bg-[#ece4e6] p-3 md:p-4">
           <div className="print-frame mx-auto max-w-[190mm] rounded-sm bg-white p-4 shadow-xl shadow-black/15 md:p-5">
@@ -93,23 +168,58 @@ export function DocumentPreviewPanel({ data }: { data: RequestRow }) {
       ) : (
         <div className="grid gap-3 p-4 lg:grid-cols-[240px_1fr]">
           <div className="space-y-2">
+            {canManagePendukung ? (
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  onChange={(e) => void uploadFiles(e.target.files)}
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="btn-ghost mb-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload size={14} />
+                  {busy ? "Memproses..." : "Unggah / ganti lampiran"}
+                </button>
+                <p className="mb-2 text-[11px] text-sli-muted">
+                  Hapus file salah lalu unggah yang benar (saat draft/revisi).
+                </p>
+              </div>
+            ) : null}
             {allFiles.length === 0 ? (
               <p className="rounded-xl border border-dashed border-sli-line p-4 text-sm text-sli-muted">
                 Belum ada lampiran yang diunggah.
               </p>
             ) : (
               allFiles.map((file) => (
-                <AttachmentThumb
-                  key={file.id}
-                  file={{
-                    id: file.id,
-                    originalFilename: file.originalFilename,
-                    mimeType: file.mimeType || "application/octet-stream",
-                    kind: file.kind,
-                  }}
-                  selected={activeFile?.id === file.id}
-                  onSelect={() => setFileId(file.id)}
-                />
+                <div key={file.id} className="space-y-1">
+                  <AttachmentThumb
+                    file={{
+                      id: file.id,
+                      originalFilename: file.originalFilename,
+                      mimeType: file.mimeType || "application/octet-stream",
+                      kind: file.kind,
+                    }}
+                    selected={activeFile?.id === file.id}
+                    onSelect={() => setFileId(file.id)}
+                  />
+                  {canManagePendukung && file.kind === "PENDUKUNG" ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-sli-muted hover:text-sli-red"
+                      onClick={() => void removeFile(file.id)}
+                    >
+                      <Trash2 size={12} /> Hapus
+                    </button>
+                  ) : null}
+                </div>
               ))
             )}
           </div>

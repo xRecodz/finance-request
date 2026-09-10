@@ -30,6 +30,15 @@ const envSchema = z.object({
 
   DOWNLOAD_URL_EXPIRES_SECONDS: z.coerce.number().int().positive().default(3600),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(26214400),
+
+  // Opsional — jika kosong, notifikasi hanya tersimpan di DB (in-app)
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.string().optional().default("false"),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+  APP_PUBLIC_URL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

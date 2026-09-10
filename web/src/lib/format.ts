@@ -31,6 +31,17 @@ export function trackLabel(track: string): string {
   return track === "DIREKTUR" ? "Bu Sari" : "Finance";
 }
 
+export function typeLabel(type: string): string {
+  switch (type) {
+    case "BARANG":
+      return "Barang";
+    case "REIMBURSEMENT":
+      return "Reimbursement";
+    default:
+      return "Dana";
+  }
+}
+
 export function statusTone(status: string): string {
   switch (status) {
     case "MENUNGGU_APPROVAL":

@@ -1,6 +1,6 @@
 "use client";
 
-import { formatDate, formatRupiah, trackLabel } from "@/lib/format";
+import { formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
 /** Lembar dokumen compact (~setengah A4) untuk preview / cetak. */
@@ -29,7 +29,7 @@ export function RequestDocumentSheet({ data }: { data: RequestRow }) {
 
       <section className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
         <Row label="Judul" value={data.title} />
-        <Row label="Jenis" value={data.type} />
+        <Row label="Jenis" value={typeLabel(data.type)} />
         <Row label="Pemohon" value={`${data.requester.name} (${data.requester.nip})`} />
         <Row label="Approver" value={`${data.approver.name} · ${trackLabel(data.track)}`} />
         <Row label="Tgl dibutuhkan" value={formatDate(data.neededDate)} />

@@ -3,7 +3,7 @@ import { createReadStream, existsSync } from "fs";
 import path from "path";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "../lib/prisma";
-import { getDownloadUrl, getPreviewUrl, isR2Configured } from "../lib/storage";
+import { deleteFromR2, getDownloadUrl, getPreviewUrl, isR2Configured } from "../lib/storage";
 import { AuthedRequest, requireAuth, requirePasswordChanged } from "../middleware/auth";
 import { HttpError, asyncHandler } from "../middleware/errorHandler";
 import { UserRole } from "@prisma/client";
@@ -111,5 +111,48 @@ attachmentsRouter.get(
     // @aws-sdk stream → Node readable
     const stream = body as NodeJS.ReadableStream;
     stream.pipe(res);
+  })
+);
+
+/** Hapus lampiran (pemohon: PENDUKUNG saat draft/revisi; pengunggah: file miliknya pada status editable). */
+attachmentsRouter.delete(
+  "/:id",
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    const file = await assertCanViewAttachment(req.params.id, req.user);
+    const reqMeta = file.request || file.lpj?.request;
+    if (!reqMeta) throw new HttpError(404, "Lampiran tidak terhubung ke pengajuan");
+
+    const fullRequest = await prisma.request.findUnique({
+      where: { id: reqMeta.id },
+      select: { id: true, status: true, requesterId: true },
+    });
+    if (!fullRequest) throw new HttpError(404, "Pengajuan tidak ditemukan");
+
+    const editable = ["DRAFT", "REVISI"].includes(fullRequest.status);
+    const isRequester = fullRequest.requesterId === req.user!.id;
+    const isUploader = file.uploadedById === req.user!.id;
+    const isAdmin = req.user!.role === UserRole.ADMIN;
+
+    if (file.kind === "PENDUKUNG") {
+      if (!isAdmin && !(isRequester && editable)) {
+        throw new HttpError(403, "Lampiran pendukung hanya bisa dihapus saat draft/revisi");
+      }
+    } else if (file.kind === "BUKTI_TRANSFER" || file.kind === "BUKTI_LPJ") {
+      // Hanya pengunggah / admin, dan status masih memungkinkan koreksi
+      const canFixTransfer = file.kind === "BUKTI_TRANSFER" && fullRequest.status === "DISETUJUI";
+      const canFixLpj =
+        file.kind === "BUKTI_LPJ" &&
+        ["DICAIRKAN", "LPJ_DITOLAK", "LPJ_MENUNGGU"].includes(fullRequest.status);
+      if (!isAdmin && !(isUploader && (canFixTransfer || canFixLpj))) {
+        throw new HttpError(403, "Anda tidak berhak menghapus lampiran ini");
+      }
+    } else {
+      throw new HttpError(403, "Jenis lampiran tidak bisa dihapus");
+    }
+
+    await deleteFromR2(file.bucket, file.objectKey);
+    await prisma.attachment.delete({ where: { id: file.id } });
+
+    res.json({ message: "Lampiran dihapus" });
   })
 );

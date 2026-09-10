@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { Bell, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { NotificationBell } from "@/components/NotificationBell";
 
 export type NavItem = {
   href: string;
@@ -69,6 +70,7 @@ export function AppShell({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <NotificationBell />
             <span className="hidden rounded-full border border-sli-red/15 bg-sli-red-soft px-3 py-1.5 text-xs font-semibold text-sli-red sm:inline">
               NIP {user?.nip}
             </span>
@@ -141,9 +143,7 @@ export function AppShell({
       <main className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-8">{children}</main>
 
       <footer className="no-print border-t border-sli-line/70 py-6 text-center text-xs text-sli-muted">
-        <span className="inline-flex items-center gap-2">
-          <Bell size={12} /> Sistem Permohonan Finance · SL INDONESIA
-        </span>
+        <span>Sistem Permohonan Finance · SL INDONESIA</span>
       </footer>
     </div>
   );

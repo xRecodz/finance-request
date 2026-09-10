@@ -207,6 +207,101 @@ requestsRouter.get(
   })
 );
 
+/** Ekspor CSV filter yang sama dengan list (max 5000 baris). */
+requestsRouter.get(
+  "/export.csv",
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    const query = listQuerySchema.parse({ ...req.query, page: 1, pageSize: 5000 });
+    const user = req.user!;
+    const where: Prisma.RequestWhereInput = {};
+
+    if (query.as === "requester" || user.role === UserRole.PEMOHON) {
+      where.requesterId = user.id;
+    } else if (user.role === UserRole.APPROVER) {
+      where.approverId = user.id;
+    } else {
+      if (query.requesterId) where.requesterId = query.requesterId;
+      if (query.approverId) where.approverId = query.approverId;
+    }
+
+    if (query.status) {
+      const statuses = query.status
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value): value is RequestStatus => value in RequestStatus);
+      if (statuses.length) where.status = { in: statuses };
+    }
+    if (query.track) where.track = query.track;
+    if (query.type) where.type = query.type;
+    if (query.from || query.to) {
+      where.createdAt = {
+        ...(query.from ? { gte: query.from } : {}),
+        ...(query.to ? { lte: endOfDay(query.to) } : {}),
+      };
+    }
+    if (query.q) {
+      where.OR = [
+        { number: { contains: query.q } },
+        { title: { contains: query.q } },
+        { purpose: { contains: query.q } },
+        { requester: { name: { contains: query.q } } },
+        { requester: { nip: { contains: query.q } } },
+      ];
+    }
+
+    const rows = await prisma.request.findMany({
+      where,
+      include: requestListInclude,
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+    });
+
+    const escape = (v: string | number | null | undefined) => {
+      const s = v == null ? "" : String(v);
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+
+    const header = [
+      "Nomor",
+      "Judul",
+      "Jenis",
+      "Jalur",
+      "Status",
+      "Pemohon NIP",
+      "Pemohon",
+      "Approver",
+      "Total",
+      "Disetujui",
+      "Tanggal",
+    ];
+    const lines = [header.join(",")];
+    for (const row of rows) {
+      const s = serializeRequestList(row);
+      lines.push(
+        [
+          escape(s.number),
+          escape(s.title),
+          escape(s.type),
+          escape(s.track),
+          escape(s.statusLabel),
+          escape(s.requester.nip),
+          escape(s.requester.name),
+          escape(s.approver.name),
+          escape(s.totalAmount),
+          escape(s.approvedAmount ?? ""),
+          escape(s.createdAt instanceof Date ? s.createdAt.toISOString() : String(s.createdAt)),
+        ].join(",")
+      );
+    }
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="pengajuan-${stamp}.csv"`);
+    res.send("\uFEFF" + lines.join("\n"));
+  })
+);
+
 requestsRouter.get(
   "/:id",
   asyncHandler<AuthedRequest>(async (req, res) => {
@@ -463,6 +558,10 @@ requestsRouter.post(
 
     const files = (req.files as Express.Multer.File[] | undefined) ?? [];
     if (files.length === 0) throw new HttpError(400, "Tidak ada file yang diunggah");
+
+    if (!EDITABLE_STATUSES.includes(existing.status)) {
+      throw new HttpError(409, "Lampiran pendukung hanya bisa diunggah saat draft/revisi");
+    }
 
     const bucket = getBucketForKind(AttachmentKind.PENDUKUNG);
     const created = [];

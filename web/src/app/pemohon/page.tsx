@@ -111,6 +111,7 @@ export default function PemohonDashboard() {
                 <th>Judul</th>
                 <th>Status</th>
                 <th>Nominal</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -126,11 +127,21 @@ export default function PemohonDashboard() {
                     <StatusBadge status={row.status} label={row.statusLabel} />
                   </td>
                   <td>{formatRupiah(row.totalAmount)}</td>
+                  <td className="text-right">
+                    {row.status === "DRAFT" || row.status === "REVISI" ? (
+                      <Link
+                        href={`/pemohon/requests/${row.id}/edit`}
+                        className="font-semibold text-sli-red hover:underline"
+                      >
+                        {row.status === "REVISI" ? "Revisi" : "Edit"}
+                      </Link>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
               {recent.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-sli-muted">
+                  <td colSpan={5} className="text-sli-muted">
                     Belum ada pengajuan.
                   </td>
                 </tr>

@@ -17,6 +17,7 @@ import {
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api } from "@/lib/api";
+import { downloadRequestsCsv } from "@/lib/exportCsv";
 import { formatRupiah } from "@/lib/format";
 import type { DashboardSummary, RequestRow } from "@/lib/types";
 
@@ -47,9 +48,22 @@ export default function ApprovalDashboard() {
           <h1 className="brand-mark text-3xl font-bold">Dashboard Approval</h1>
           <p className="text-sli-muted">Pantau pendingan, nominal keluar, dan tren pengajuan.</p>
         </div>
-        <div className="panel flex flex-wrap gap-2 rounded-2xl p-2">
+        <div className="panel flex flex-wrap items-center gap-2 rounded-2xl p-2">
           <input className="input !w-auto" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           <input className="input !w-auto" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-2 text-sm font-semibold"
+            onClick={() => {
+              const params = new URLSearchParams();
+              params.set("status", "MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU");
+              if (from) params.set("from", from);
+              if (to) params.set("to", to);
+              void downloadRequestsCsv(params, `antrian-approval-${new Date().toISOString().slice(0, 10)}.csv`);
+            }}
+          >
+            Ekspor CSV
+          </button>
         </div>
       </div>
 

@@ -65,6 +65,17 @@ metaRouter.get(
 );
 
 metaRouter.post(
+  "/notifications/:id/read",
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    await prisma.notification.updateMany({
+      where: { id: req.params.id, userId: req.user!.id },
+      data: { isRead: true },
+    });
+    res.json({ message: "Notifikasi ditandai dibaca" });
+  })
+);
+
+metaRouter.post(
   "/notifications/read-all",
   asyncHandler<AuthedRequest>(async (req, res) => {
     await prisma.notification.updateMany({

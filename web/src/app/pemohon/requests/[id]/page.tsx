@@ -31,6 +31,7 @@ export default function PemohonRequestDetailPage() {
   if (!data) return <div className="text-sli-muted">Memuat pengajuan...</div>;
 
   const canLpj = ["DICAIRKAN", "LPJ_DITOLAK"].includes(data.status);
+  const canEdit = ["DRAFT", "REVISI"].includes(data.status);
 
   return (
     <div className="space-y-5">
@@ -43,6 +44,14 @@ export default function PemohonRequestDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canEdit ? (
+            <Link
+              href={`/pemohon/requests/${data.id}/edit`}
+              className="btn-primary rounded-xl px-4 py-2 text-sm font-semibold"
+            >
+              {data.status === "REVISI" ? "Revisi & Kirim Ulang" : "Edit Draft"}
+            </Link>
+          ) : null}
           <Link
             href={`/dokumen/${data.id}?print=1`}
             className="btn-ghost rounded-xl px-4 py-2 text-sm font-semibold"
@@ -61,6 +70,13 @@ export default function PemohonRequestDetailPage() {
         </div>
       </div>
 
+      {data.status === "REVISI" && data.decisionNote ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Catatan revisi dari approver</p>
+          <p className="mt-1 whitespace-pre-wrap">{data.decisionNote}</p>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Info label="Jalur" value={trackLabel(data.track)} />
         <Info label="Kepada" value={data.approver.name} />
@@ -70,7 +86,7 @@ export default function PemohonRequestDetailPage() {
         <Info label="Dikirim" value={formatDateTime(data.submittedAt)} />
       </div>
 
-      <DocumentPreviewPanel data={data} />
+      <DocumentPreviewPanel data={data} onChanged={() => void load()} />
 
       {data.lpj ? (
         <div className="panel rounded-2xl p-5">
