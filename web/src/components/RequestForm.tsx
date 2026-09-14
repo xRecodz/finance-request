@@ -2,7 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { OutletCombobox } from "@/components/OutletCombobox";
 import { api, ApiError } from "@/lib/api";
+import {
+  APPROVER_CATEGORY_NIPS,
+  type CategoryMode,
+  type SekretariatDest,
+} from "@/lib/approverCategories";
 import { formatRupiah } from "@/lib/format";
 import type {
   ApproverOption,
@@ -40,7 +46,9 @@ export function RequestForm({ mode, initial, onSave }: Props) {
   const [track, setTrack] = useState<ApproverTrack>(initial?.track || "DIREKTUR");
   const [type, setType] = useState<string>(initial?.type || "DANA");
   const [approverId, setApproverId] = useState(initial?.approver?.id || "");
+  const [sekretariatDest, setSekretariatDest] = useState<SekretariatDest>("HO");
   const [categoryId, setCategoryId] = useState(initial?.category?.id || "");
+  const [outletQuery, setOutletQuery] = useState(initial?.category?.name || "");
   const [title, setTitle] = useState(initial?.title || "");
   const [purpose, setPurpose] = useState(initial?.purpose || "");
   const [neededDate, setNeededDate] = useState(toDateInput(initial?.neededDate));
@@ -72,26 +80,75 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     });
   }, []);
 
+  const sekretariatUser = useMemo(
+    () => approvers.find((a) => a.nip === APPROVER_CATEGORY_NIPS.SEKRETARIAT),
+    [approvers]
+  );
+  const financeOutletUser = useMemo(
+    () => approvers.find((a) => a.nip === APPROVER_CATEGORY_NIPS.FINANCE_OUTLET),
+    [approvers]
+  );
+  const financeHoUser = useMemo(
+    () => approvers.find((a) => a.nip === APPROVER_CATEGORY_NIPS.FINANCE_HO),
+    [approvers]
+  );
+
   const tracksWithApprovers = useMemo(() => {
     const set = new Set<ApproverTrack>();
     for (const a of approvers) set.add(a.approverTrack);
     return set;
   }, [approvers]);
 
-  const filteredApprovers = useMemo(
-    () => approvers.filter((a) => a.approverTrack === track),
-    [approvers, track]
-  );
+  const categoryMode: CategoryMode = useMemo(() => {
+    if (track === "DIREKTUR") {
+      return sekretariatDest === "OUTLET" ? "outlet" : "head_office";
+    }
+    const selected = approvers.find((a) => a.id === approverId);
+    if (selected?.nip === APPROVER_CATEGORY_NIPS.FINANCE_OUTLET) return "outlet";
+    return "head_office";
+  }, [track, sekretariatDest, approverId, approvers]);
+
+  const visibleCategories = useMemo(() => {
+    if (categoryMode === "outlet") {
+      return categories.filter((c) => c.kind === "OUTLET" || c.code.startsWith("OUT_"));
+    }
+    return categories.filter(
+      (c) => (c.kind === "STANDARD" || !c.kind || !c.code.startsWith("OUT_")) && c.code !== "OPS"
+    );
+  }, [categories, categoryMode]);
 
   useEffect(() => {
-    if (!filteredApprovers.length) {
-      if (approverId) setApproverId("");
-      return;
+    if (track !== "DIREKTUR") return;
+    if (sekretariatUser && approverId !== sekretariatUser.id) {
+      setApproverId(sekretariatUser.id);
     }
-    if (!filteredApprovers.find((a) => a.id === approverId)) {
-      setApproverId(filteredApprovers[0]?.id || "");
+  }, [track, sekretariatUser, approverId]);
+
+  useEffect(() => {
+    if (track !== "FINANCE") return;
+    const financeIds = [financeOutletUser?.id, financeHoUser?.id].filter(Boolean) as string[];
+    if (!financeIds.length) return;
+    if (!financeIds.includes(approverId)) {
+      setApproverId(financeOutletUser?.id || financeHoUser?.id || "");
     }
-  }, [filteredApprovers, approverId]);
+  }, [track, financeOutletUser, financeHoUser, approverId]);
+
+  useEffect(() => {
+    if (!categoryId) return;
+    const stillValid = visibleCategories.some((c) => c.id === categoryId);
+    if (!stillValid) {
+      setCategoryId("");
+      setOutletQuery("");
+    }
+  }, [categoryMode, visibleCategories, categoryId]);
+
+  useEffect(() => {
+    if (mode !== "edit" || !initial?.category || track !== "DIREKTUR") return;
+    const isOutlet =
+      Boolean(initial.category.code?.startsWith("OUT_")) ||
+      categories.find((c) => c.id === initial.category?.id)?.kind === "OUTLET";
+    setSekretariatDest(isOutlet ? "OUTLET" : "HO");
+  }, [mode, initial?.category, track, categories]);
 
   const total = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
   const isRevisi = initial?.status === "REVISI";
@@ -100,12 +157,30 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   }
 
-  function buildPayload(submitNow: boolean) {
+  async function resolveCategoryId(): Promise<string | null> {
+    if (categoryMode === "head_office") {
+      return categoryId || null;
+    }
+    if (categoryId) return categoryId;
+    const name = outletQuery.trim();
+    if (!name) return null;
+    const res = await api<{ data: CategoryOption }>("/api/meta/outlets", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    setCategories((prev) =>
+      prev.some((c) => c.id === res.data.id) ? prev : [...prev, { ...res.data, kind: "OUTLET" }]
+    );
+    setCategoryId(res.data.id);
+    return res.data.id;
+  }
+
+  function buildPayload(submitNow: boolean, resolvedCategoryId: string | null) {
     return {
       type,
       track,
       approverId,
-      categoryId: categoryId || null,
+      categoryId: resolvedCategoryId,
       title,
       purpose,
       neededDate: neededDate || null,
@@ -128,7 +203,15 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     setError("");
     setSaving(true);
     try {
-      await onSave(buildPayload(submitNow), submitNow);
+      if (!approverId) throw new ApiError("Pilih tujuan pengajuan", 400);
+      const resolved = await resolveCategoryId();
+      if (!resolved) {
+        throw new ApiError(
+          categoryMode === "outlet" ? "Kategori outlet wajib diisi" : "Kategori wajib dipilih",
+          400
+        );
+      }
+      await onSave(buildPayload(submitNow, resolved), submitNow);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal menyimpan pengajuan");
     } finally {
@@ -198,7 +281,11 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           <select
             className="input"
             value={track}
-            onChange={(e) => setTrack(e.target.value as ApproverTrack)}
+            onChange={(e) => {
+              setTrack(e.target.value as ApproverTrack);
+              setCategoryId("");
+              setOutletQuery("");
+            }}
           >
             <option value="DIREKTUR" disabled={!tracksWithApprovers.has("DIREKTUR")}>
               Sekretariat{!tracksWithApprovers.has("DIREKTUR") ? " (tidak tersedia)" : ""}
@@ -207,40 +294,83 @@ export function RequestForm({ mode, initial, onSave }: Props) {
               Finance{!tracksWithApprovers.has("FINANCE") ? " (tidak tersedia)" : ""}
             </option>
           </select>
-          {!filteredApprovers.length ? (
-            <p className="mt-1 text-xs text-sli-red">Tidak ada penerima di jalur ini.</p>
-          ) : (
-            <p className="mt-1 text-xs text-sli-muted">
-              Pilih jalur, lalu pilih pejabat tujuan. Approver boleh mengajukan ke jalur sendiri.
-            </p>
-          )}
         </label>
+
         <label className="block">
           <span className="mb-1.5 block text-sm font-semibold">Pengajuan kepada</span>
-          <select
-            className="input"
-            value={approverId}
-            onChange={(e) => setApproverId(e.target.value)}
-            required
-          >
-            {filteredApprovers.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          {track === "DIREKTUR" ? (
+            <select
+              className="input"
+              value={sekretariatDest}
+              onChange={(e) => {
+                setSekretariatDest(e.target.value as SekretariatDest);
+                setCategoryId("");
+                setOutletQuery("");
+              }}
+              required
+            >
+              <option value="HO">Head Office</option>
+              <option value="OUTLET">Outlet</option>
+            </select>
+          ) : (
+            <select
+              className="input"
+              value={approverId}
+              onChange={(e) => {
+                setApproverId(e.target.value);
+                setCategoryId("");
+                setOutletQuery("");
+              }}
+              required
+            >
+              {financeOutletUser ? (
+                <option value={financeOutletUser.id}>{financeOutletUser.name}</option>
+              ) : null}
+              {financeHoUser ? <option value={financeHoUser.id}>{financeHoUser.name}</option> : null}
+            </select>
+          )}
+          <p className="mt-1 text-xs text-sli-muted">
+            {track === "DIREKTUR"
+              ? "Head Office / Outlet menentukan daftar kategori. Approval tetap ke Sekretariat."
+              : categoryMode === "outlet"
+                ? "Kategori: daftar outlet"
+                : "Kategori: Head Office (tanpa Operasional)"}
+          </p>
         </label>
+
         <label className="block">
-          <span className="mb-1.5 block text-sm font-semibold">Kategori</span>
-          <select className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">— opsional —</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <span className="mb-1.5 block text-sm font-semibold">
+            {categoryMode === "outlet" ? "Kategori (Outlet)" : "Kategori (Head Office)"}
+          </span>
+          {categoryMode === "outlet" ? (
+            <OutletCombobox
+              options={visibleCategories}
+              valueId={categoryId}
+              query={outletQuery}
+              required
+              onQueryChange={setOutletQuery}
+              onChange={(id, name) => {
+                setCategoryId(id);
+                if (name) setOutletQuery(name);
+              }}
+            />
+          ) : (
+            <select
+              className="input"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              required
+            >
+              <option value="">— pilih kategori —</option>
+              {visibleCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
+
         <label className="block">
           <span className="mb-1.5 block text-sm font-semibold">Tanggal dibutuhkan</span>
           <input

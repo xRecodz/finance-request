@@ -60,6 +60,11 @@ enum UserSource {
   HRIS
 }
 
+enum CategoryKind {
+  STANDARD
+  OUTLET
+}
+
 // ── Master ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -98,16 +103,19 @@ model User {
 }
 
 model Category {
-  id          String    @id @default(cuid())
-  code        String    @unique
+  id          String       @id @default(cuid())
+  code        String       @unique
   name        String
   description String?
-  isActive    Boolean   @default(true)
-  sortOrder   Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  kind        CategoryKind @default(STANDARD)
+  isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   requests Request[]
+
+  @@index([kind, isActive, sortOrder])
 }
 
 // ── Pengajuan ───────────────────────────────────────────────────────────────

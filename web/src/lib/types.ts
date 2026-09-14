@@ -165,4 +165,5 @@ export type CategoryOption = {
   id: string;
   code: string;
   name: string;
+  kind?: "STANDARD" | "OUTLET";
 };

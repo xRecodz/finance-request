@@ -4,6 +4,9 @@ import fs from "fs";
 import path from "path";
 import { APPROVER_WHITELIST, LEGACY_TEST_NIPS } from "./whitelist-approvers";
 import { CATEGORY_MASTER } from "./categories";
+import { OUTLET_NAMES } from "./outlets";
+import { outletCode } from "../src/lib/outlets";
+import { CategoryKind } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -65,13 +68,48 @@ async function main() {
   for (const category of CATEGORY_MASTER) {
     await prisma.category.upsert({
       where: { code: category.code },
-      create: { ...category, description: `Kategori ${category.name}` },
-      update: { name: category.name, sortOrder: category.sortOrder, isActive: true },
+      create: {
+        ...category,
+        kind: CategoryKind.STANDARD,
+        description: `Kategori ${category.name}`,
+      },
+      update: {
+        name: category.name,
+        sortOrder: category.sortOrder,
+        kind: CategoryKind.STANDARD,
+        isActive: true,
+      },
+    });
+  }
+
+  let outletOrder = 100;
+  const outletCodes: string[] = [];
+  for (const name of OUTLET_NAMES) {
+    const code = outletCode(name);
+    outletCodes.push(code);
+    await prisma.category.upsert({
+      where: { code },
+      create: {
+        code,
+        name,
+        kind: CategoryKind.OUTLET,
+        sortOrder: outletOrder++,
+        description: "Outlet",
+      },
+      update: {
+        name,
+        kind: CategoryKind.OUTLET,
+        sortOrder: outletOrder - 1,
+        isActive: true,
+      },
     });
   }
 
   await prisma.category.updateMany({
-    where: { code: { notIn: CATEGORY_MASTER.map((c) => c.code) }, isActive: true },
+    where: {
+      code: { notIn: [...CATEGORY_MASTER.map((c) => c.code), ...outletCodes] },
+      isActive: true,
+    },
     data: { isActive: false },
   });
 
