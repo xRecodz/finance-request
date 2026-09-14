@@ -297,7 +297,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-semibold">Pengajuan kepada</span>
+          <span className="mb-1.5 block text-sm font-semibold">Dibebankan kepada</span>
           {track === "DIREKTUR" ? (
             <select
               className="input"
