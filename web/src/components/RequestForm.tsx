@@ -72,13 +72,35 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     });
   }, []);
 
+  const tracksWithApprovers = useMemo(() => {
+    const set = new Set<ApproverTrack>();
+    for (const a of approvers) set.add(a.approverTrack);
+    return set;
+  }, [approvers]);
+
+  // Approver yang login (mis. Bu Sari) tidak muncul di dropdown jalurnya sendiri.
+  // Pindahkan otomatis ke jalur yang masih punya opsi (mis. Finance).
+  useEffect(() => {
+    if (!approvers.length || mode === "edit") return;
+    if (tracksWithApprovers.has(track)) return;
+    const fallback = tracksWithApprovers.has("FINANCE")
+      ? "FINANCE"
+      : tracksWithApprovers.has("DIREKTUR")
+        ? "DIREKTUR"
+        : null;
+    if (fallback) setTrack(fallback);
+  }, [approvers, tracksWithApprovers, track, mode]);
+
   const filteredApprovers = useMemo(
     () => approvers.filter((a) => a.approverTrack === track),
     [approvers, track]
   );
 
   useEffect(() => {
-    if (!filteredApprovers.length) return;
+    if (!filteredApprovers.length) {
+      if (approverId) setApproverId("");
+      return;
+    }
     if (!filteredApprovers.find((a) => a.id === approverId)) {
       setApproverId(filteredApprovers[0]?.id || "");
     }
@@ -191,9 +213,24 @@ export function RequestForm({ mode, initial, onSave }: Props) {
             value={track}
             onChange={(e) => setTrack(e.target.value as ApproverTrack)}
           >
-            <option value="DIREKTUR">Bu Sari</option>
-            <option value="FINANCE">Finance</option>
+            <option value="DIREKTUR" disabled={!tracksWithApprovers.has("DIREKTUR")}>
+              Bu Sari{!tracksWithApprovers.has("DIREKTUR") ? " (tidak tersedia — tidak bisa ke diri sendiri)" : ""}
+            </option>
+            <option value="FINANCE" disabled={!tracksWithApprovers.has("FINANCE")}>
+              Finance{!tracksWithApprovers.has("FINANCE") ? " (tidak tersedia)" : ""}
+            </option>
           </select>
+          {!filteredApprovers.length ? (
+            <p className="mt-1 text-xs text-sli-red">
+              Tidak ada penerima di jalur ini. Pilih jalur lain (approver tidak bisa mengajukan ke diri
+              sendiri).
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-sli-muted">
+              Approver juga bisa mengajukan sebagai pemohon. Pilih jalur tujuan yang berbeda dari akun
+              Anda.
+            </p>
+          )}
         </label>
         <label className="block">
           <span className="mb-1.5 block text-sm font-semibold">Pengajuan kepada</span>
