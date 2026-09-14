@@ -4,8 +4,16 @@ export type UserRole = "PEMOHON" | "APPROVER" | "ADMIN" | "IT";
 export type ApproverTrack = "DIREKTUR" | "FINANCE";
 
 export function homePathForRole(role: UserRole): string {
+  if (role === "IT" || role === "ADMIN") return "/it";
+  if (role === "APPROVER") return "/approval";
+  return "/pemohon";
+}
+
+/** Redirect setelah login sesuai pintu yang dipilih. */
+export function pathForPortal(portal: Portal, role: UserRole): string {
+  if (portal === "IT") return "/it";
+  if (portal === "APPROVAL") return "/approval";
   if (role === "IT") return "/it";
-  if (role === "APPROVER" || role === "ADMIN") return "/approval";
   return "/pemohon";
 }
 

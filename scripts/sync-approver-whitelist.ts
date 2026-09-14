@@ -74,7 +74,8 @@ async function main() {
 
   const demoted = await prisma.user.updateMany({
     where: {
-      role: { in: [UserRole.APPROVER, UserRole.ADMIN] },
+      // Jangan turunkan ADMIN / IT — hanya Approver di luar whitelist.
+      role: UserRole.APPROVER,
       nip: { notIn: APPROVER_WHITELIST.map((w) => w.nip) },
     },
     data: { role: UserRole.PEMOHON, approverTrack: null },

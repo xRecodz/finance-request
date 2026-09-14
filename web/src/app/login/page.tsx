@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
-import { homePathForRole, type Portal } from "@/lib/types";
+import { pathForPortal, type Portal } from "@/lib/types";
 
 function parsePortal(value: string | null): Portal {
   if (value === "APPROVAL" || value === "IT") return value;
@@ -35,8 +35,11 @@ function LoginForm() {
     setLoading(true);
     try {
       const user = await login(nip.trim(), password, portal);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("sli_post_login_portal", portal);
+      }
       if (user.mustChangePassword) router.replace("/change-password");
-      else router.replace(homePathForRole(user.role));
+      else router.replace(pathForPortal(portal, user.role));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login gagal");
     } finally {

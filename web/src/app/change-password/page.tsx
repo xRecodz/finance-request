@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
-import { homePathForRole } from "@/lib/types";
+import { homePathForRole, pathForPortal, type Portal } from "@/lib/types";
 
 export default function ChangePasswordPage() {
   const { user, loading, changePassword } = useAuth();
@@ -26,7 +26,12 @@ export default function ChangePasswordPage() {
     setSaving(true);
     try {
       await changePassword(currentPassword, newPassword, confirmPassword);
-      router.replace(user ? homePathForRole(user.role) : "/");
+      const portal = (typeof window !== "undefined"
+        ? sessionStorage.getItem("sli_post_login_portal")
+        : null) as Portal | null;
+      router.replace(
+        user && portal ? pathForPortal(portal, user.role) : user ? homePathForRole(user.role) : "/"
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal mengganti password");
     } finally {
