@@ -46,7 +46,8 @@ export function RequestForm({ mode, initial, onSave }: Props) {
   const [track, setTrack] = useState<ApproverTrack>(initial?.track || "DIREKTUR");
   const [type, setType] = useState<string>(initial?.type || "DANA");
   const [approverId, setApproverId] = useState(initial?.approver?.id || "");
-  const [sekretariatDest, setSekretariatDest] = useState<SekretariatDest>("HO");
+  /** Head Office | Outlet — label UI; mapping ke approver di belakang layar. */
+  const [dest, setDest] = useState<SekretariatDest>("HO");
   const [categoryId, setCategoryId] = useState(initial?.category?.id || "");
   const [outletQuery, setOutletQuery] = useState(initial?.category?.name || "");
   const [title, setTitle] = useState(initial?.title || "");
@@ -99,14 +100,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     return set;
   }, [approvers]);
 
-  const categoryMode: CategoryMode = useMemo(() => {
-    if (track === "DIREKTUR") {
-      return sekretariatDest === "OUTLET" ? "outlet" : "head_office";
-    }
-    const selected = approvers.find((a) => a.id === approverId);
-    if (selected?.nip === APPROVER_CATEGORY_NIPS.FINANCE_OUTLET) return "outlet";
-    return "head_office";
-  }, [track, sekretariatDest, approverId, approvers]);
+  const categoryMode: CategoryMode = dest === "OUTLET" ? "outlet" : "head_office";
 
   const visibleCategories = useMemo(() => {
     if (categoryMode === "outlet") {
@@ -117,21 +111,21 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     );
   }, [categories, categoryMode]);
 
+  // Mapping: Sekretariat→Bu Sari; Finance+Outlet→Belly; Finance+HO→Resi
   useEffect(() => {
-    if (track !== "DIREKTUR") return;
-    if (sekretariatUser && approverId !== sekretariatUser.id) {
-      setApproverId(sekretariatUser.id);
+    if (track === "DIREKTUR") {
+      if (sekretariatUser && approverId !== sekretariatUser.id) {
+        setApproverId(sekretariatUser.id);
+      }
+      return;
     }
-  }, [track, sekretariatUser, approverId]);
-
-  useEffect(() => {
-    if (track !== "FINANCE") return;
-    const financeIds = [financeOutletUser?.id, financeHoUser?.id].filter(Boolean) as string[];
-    if (!financeIds.length) return;
-    if (!financeIds.includes(approverId)) {
-      setApproverId(financeOutletUser?.id || financeHoUser?.id || "");
+    if (track === "FINANCE") {
+      const target = dest === "OUTLET" ? financeOutletUser : financeHoUser;
+      if (target && approverId !== target.id) {
+        setApproverId(target.id);
+      }
     }
-  }, [track, financeOutletUser, financeHoUser, approverId]);
+  }, [track, dest, sekretariatUser, financeOutletUser, financeHoUser, approverId]);
 
   useEffect(() => {
     if (!categoryId) return;
@@ -143,12 +137,12 @@ export function RequestForm({ mode, initial, onSave }: Props) {
   }, [categoryMode, visibleCategories, categoryId]);
 
   useEffect(() => {
-    if (mode !== "edit" || !initial?.category || track !== "DIREKTUR") return;
+    if (mode !== "edit" || !initial?.category) return;
     const isOutlet =
       Boolean(initial.category.code?.startsWith("OUT_")) ||
       categories.find((c) => c.id === initial.category?.id)?.kind === "OUTLET";
-    setSekretariatDest(isOutlet ? "OUTLET" : "HO");
-  }, [mode, initial?.category, track, categories]);
+    setDest(isOutlet ? "OUTLET" : "HO");
+  }, [mode, initial?.category, categories]);
 
   const total = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
   const isRevisi = initial?.status === "REVISI";
@@ -277,7 +271,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </select>
         </label>
         <label className="block">
-          <span className="mb-1.5 block text-sm font-semibold">Jalur approval</span>
+          <span className="mb-1.5 block text-sm font-semibold">Jalur Pengajuan</span>
           <select
             className="input"
             value={track}
@@ -297,44 +291,30 @@ export function RequestForm({ mode, initial, onSave }: Props) {
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-semibold">Dibebankan kepada</span>
-          {track === "DIREKTUR" ? (
-            <select
-              className="input"
-              value={sekretariatDest}
-              onChange={(e) => {
-                setSekretariatDest(e.target.value as SekretariatDest);
-                setCategoryId("");
-                setOutletQuery("");
-              }}
-              required
-            >
-              <option value="HO">Head Office</option>
-              <option value="OUTLET">Outlet</option>
-            </select>
-          ) : (
-            <select
-              className="input"
-              value={approverId}
-              onChange={(e) => {
-                setApproverId(e.target.value);
-                setCategoryId("");
-                setOutletQuery("");
-              }}
-              required
-            >
-              {financeOutletUser ? (
-                <option value={financeOutletUser.id}>{financeOutletUser.name}</option>
-              ) : null}
-              {financeHoUser ? <option value={financeHoUser.id}>{financeHoUser.name}</option> : null}
-            </select>
-          )}
+          <span className="mb-1.5 block text-sm font-semibold">Pengajuan kepada</span>
+          <select
+            className="input"
+            value={dest}
+            onChange={(e) => {
+              setDest(e.target.value as SekretariatDest);
+              setCategoryId("");
+              setOutletQuery("");
+            }}
+            required
+          >
+            <option value="OUTLET" disabled={track === "FINANCE" && !financeOutletUser}>
+              Outlet
+            </option>
+            <option value="HO" disabled={track === "FINANCE" && !financeHoUser}>
+              Head Office
+            </option>
+          </select>
           <p className="mt-1 text-xs text-sli-muted">
             {track === "DIREKTUR"
-              ? "Head Office / Outlet menentukan daftar kategori. Approval tetap ke Sekretariat."
-              : categoryMode === "outlet"
-                ? "Kategori: daftar outlet"
-                : "Kategori: Head Office (tanpa Operasional)"}
+              ? "Approval ke Sekretariat. Head Office / Outlet menentukan kategori."
+              : dest === "OUTLET"
+                ? "Approval ke Finance (Outlet). Kategori: daftar outlet."
+                : "Approval ke Finance (Head Office). Kategori: tanpa Operasional."}
           </p>
         </label>
 
