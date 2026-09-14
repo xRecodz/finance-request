@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import fs from "fs";
 import path from "path";
 import { APPROVER_WHITELIST, LEGACY_TEST_NIPS } from "./whitelist-approvers";
+import { CATEGORY_MASTER } from "./categories";
 
 const prisma = new PrismaClient();
 
@@ -61,21 +62,18 @@ async function main() {
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
   console.log(`Password default: ${DEFAULT_PASSWORD}`);
 
-  const categories = [
-    { code: "OPS", name: "Operasional", sortOrder: 1 },
-    { code: "MKT", name: "Marketing", sortOrder: 2 },
-    { code: "HRD", name: "SDM / HRD", sortOrder: 3 },
-    { code: "IT", name: "IT & Sistem", sortOrder: 4 },
-    { code: "UMUM", name: "Umum", sortOrder: 5 },
-  ];
-
-  for (const category of categories) {
+  for (const category of CATEGORY_MASTER) {
     await prisma.category.upsert({
       where: { code: category.code },
       create: { ...category, description: `Kategori ${category.name}` },
       update: { name: category.name, sortOrder: category.sortOrder, isActive: true },
     });
   }
+
+  await prisma.category.updateMany({
+    where: { code: { notIn: CATEGORY_MASTER.map((c) => c.code) }, isActive: true },
+    data: { isActive: false },
+  });
 
   await removeLegacyTestUsers();
 
