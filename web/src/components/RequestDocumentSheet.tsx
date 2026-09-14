@@ -31,7 +31,8 @@ export function RequestDocumentSheet({ data }: { data: RequestRow }) {
         <Row label="Judul" value={data.title} />
         <Row label="Jenis" value={typeLabel(data.type)} />
         <Row label="Pemohon" value={`${data.requester.name} (${data.requester.nip})`} />
-        <Row label="Approver" value={`${data.approver.name} · ${trackLabel(data.track)}`} />
+        <Row label="Jalur" value={trackLabel(data.track)} />
+        <Row label="Menyetujui" value={data.approver.name} />
         <Row label="Tgl dibutuhkan" value={formatDate(data.neededDate)} />
         <Row label="Total diajukan" value={formatRupiah(data.totalAmount)} />
         {data.approvedAmount != null ? (

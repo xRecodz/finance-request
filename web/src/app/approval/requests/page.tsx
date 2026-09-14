@@ -124,7 +124,7 @@ export default function ApprovalRequestsPage() {
           }}
         >
           <option value="">Semua jalur</option>
-          <option value="DIREKTUR">Bu Sari</option>
+          <option value="DIREKTUR">Sekretariat</option>
           <option value="FINANCE">Finance</option>
         </select>
         <div className="grid grid-cols-2 gap-2">

@@ -15,13 +15,12 @@ metaRouter.use(requireAuth, requirePasswordChanged);
 /** Daftar approver aktif untuk dropdown "pengajuan kepada siapa". */
 metaRouter.get(
   "/approvers",
-  asyncHandler<AuthedRequest>(async (req, res) => {
+  asyncHandler<AuthedRequest>(async (_req, res) => {
+    // Termasuk diri sendiri — agar Sekretariat (Bu Sari) bisa mengajukan ke jalur sendiri lalu approve.
     const approvers = await prisma.user.findMany({
       where: {
         role: UserRole.APPROVER,
         isActive: true,
-        // Jangan tampilkan diri sendiri di dropdown tujuan pengajuan.
-        id: { not: req.user!.id },
       },
       select: {
         id: true,

@@ -78,19 +78,6 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     return set;
   }, [approvers]);
 
-  // Approver yang login (mis. Bu Sari) tidak muncul di dropdown jalurnya sendiri.
-  // Pindahkan otomatis ke jalur yang masih punya opsi (mis. Finance).
-  useEffect(() => {
-    if (!approvers.length || mode === "edit") return;
-    if (tracksWithApprovers.has(track)) return;
-    const fallback = tracksWithApprovers.has("FINANCE")
-      ? "FINANCE"
-      : tracksWithApprovers.has("DIREKTUR")
-        ? "DIREKTUR"
-        : null;
-    if (fallback) setTrack(fallback);
-  }, [approvers, tracksWithApprovers, track, mode]);
-
   const filteredApprovers = useMemo(
     () => approvers.filter((a) => a.approverTrack === track),
     [approvers, track]
@@ -214,21 +201,17 @@ export function RequestForm({ mode, initial, onSave }: Props) {
             onChange={(e) => setTrack(e.target.value as ApproverTrack)}
           >
             <option value="DIREKTUR" disabled={!tracksWithApprovers.has("DIREKTUR")}>
-              Bu Sari{!tracksWithApprovers.has("DIREKTUR") ? " (tidak tersedia — tidak bisa ke diri sendiri)" : ""}
+              Sekretariat{!tracksWithApprovers.has("DIREKTUR") ? " (tidak tersedia)" : ""}
             </option>
             <option value="FINANCE" disabled={!tracksWithApprovers.has("FINANCE")}>
               Finance{!tracksWithApprovers.has("FINANCE") ? " (tidak tersedia)" : ""}
             </option>
           </select>
           {!filteredApprovers.length ? (
-            <p className="mt-1 text-xs text-sli-red">
-              Tidak ada penerima di jalur ini. Pilih jalur lain (approver tidak bisa mengajukan ke diri
-              sendiri).
-            </p>
+            <p className="mt-1 text-xs text-sli-red">Tidak ada penerima di jalur ini.</p>
           ) : (
             <p className="mt-1 text-xs text-sli-muted">
-              Approver juga bisa mengajukan sebagai pemohon. Pilih jalur tujuan yang berbeda dari akun
-              Anda.
+              Pilih jalur, lalu pilih pejabat tujuan. Approver boleh mengajukan ke jalur sendiri.
             </p>
           )}
         </label>
@@ -242,7 +225,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           >
             {filteredApprovers.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name} ({a.nip})
+                {a.name}
               </option>
             ))}
           </select>

@@ -143,7 +143,7 @@ export default function ItUsersPage() {
                     {ROLE_LABEL[row.role]}
                     {row.approverTrack ? (
                       <span className="ml-1 text-xs text-sli-muted">
-                        ({row.approverTrack === "DIREKTUR" ? "Bu Sari" : "Finance"})
+                        ({row.approverTrack === "DIREKTUR" ? "Sekretariat" : "Finance"})
                       </span>
                     ) : null}
                   </td>

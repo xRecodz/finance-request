@@ -91,7 +91,7 @@ export default function PemohonRequestsPage() {
           }}
         >
           <option value="">Semua jalur</option>
-          <option value="DIREKTUR">Bu Sari</option>
+          <option value="DIREKTUR">Sekretariat</option>
           <option value="FINANCE">Finance</option>
         </select>
         <select

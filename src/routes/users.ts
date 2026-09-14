@@ -67,7 +67,7 @@ const createSchema = z
     if (data.role === UserRole.APPROVER && !data.approverTrack) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Approver wajib punya jalur (Bu Sari / Finance)",
+        message: "Approver wajib punya jalur (Sekretariat / Finance)",
         path: ["approverTrack"],
       });
     }
@@ -88,7 +88,7 @@ const patchSchema = z
     if (data.role === UserRole.APPROVER && data.approverTrack === null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Approver wajib punya jalur (Bu Sari / Finance)",
+        message: "Approver wajib punya jalur (Sekretariat / Finance)",
         path: ["approverTrack"],
       });
     }
@@ -222,7 +222,7 @@ usersRouter.patch(
     if (nextRole === UserRole.APPROVER) {
       const track = body.approverTrack !== undefined ? body.approverTrack : existing.approverTrack;
       if (!track) {
-        throw new HttpError(400, "Approver wajib punya jalur (Bu Sari / Finance)");
+        throw new HttpError(400, "Approver wajib punya jalur (Sekretariat / Finance)");
       }
     }
 

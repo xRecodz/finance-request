@@ -155,7 +155,7 @@ export default function ItCreateUserPage() {
                 required
               >
                 <option value="">Pilih jalur</option>
-                <option value="DIREKTUR">Bu Sari</option>
+                <option value="DIREKTUR">Sekretariat</option>
                 <option value="FINANCE">Finance</option>
               </select>
             </label>

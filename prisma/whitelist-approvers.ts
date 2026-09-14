@@ -12,7 +12,7 @@ export const APPROVER_WHITELIST: Array<{
 }> = [
   {
     nip: "1109.0.86.00052",
-    nameHint: "Sari Kumala (Bu Sari)",
+    nameHint: "Sari Kumala (Sekretariat)",
     role: UserRole.APPROVER,
     approverTrack: ApproverTrack.DIREKTUR,
   },

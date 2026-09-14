@@ -98,11 +98,9 @@ function computeItems(items: z.infer<typeof itemSchema>[]) {
 async function assertApproverValid(
   approverId: string,
   track: ApproverTrack,
-  actorId: string
+  _actorId: string
 ) {
-  if (approverId === actorId) {
-    throw new HttpError(400, "Tidak dapat mengajukan kepada diri sendiri");
-  }
+  // Boleh mengajukan kepada diri sendiri (mis. Sekretariat mengajukan lalu approve sendiri).
   const approver = await prisma.user.findUnique({ where: { id: approverId } });
   if (!approver || !approver.isActive || approver.role !== UserRole.APPROVER) {
     throw new HttpError(400, "Tujuan approval tidak valid");

@@ -220,7 +220,7 @@ export default function ItEditUserPage() {
                 disabled={isAdminTarget}
               >
                 <option value="">Pilih jalur</option>
-                <option value="DIREKTUR">Bu Sari</option>
+                <option value="DIREKTUR">Sekretariat</option>
                 <option value="FINANCE">Finance</option>
               </select>
             </label>
