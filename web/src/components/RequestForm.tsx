@@ -254,24 +254,37 @@ export function RequestForm({ mode, initial, onSave }: Props) {
 
       <div className="panel grid gap-4 rounded-2xl p-5 md:grid-cols-3">
         <h2 className="md:col-span-3 font-semibold">Rekening pencairan (opsional)</h2>
-        <input
-          className="input"
-          placeholder="Bank"
-          value={bankName}
-          onChange={(e) => setBankName(e.target.value)}
-        />
-        <input
-          className="input"
-          placeholder="No. rekening"
-          value={bankAccountNumber}
-          onChange={(e) => setBankAccountNumber(e.target.value)}
-        />
-        <input
-          className="input"
-          placeholder="Atas nama"
-          value={bankAccountHolder}
-          onChange={(e) => setBankAccountHolder(e.target.value)}
-        />
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold">Nama bank</span>
+          <input
+            className="input"
+            placeholder="Contoh: BCA, Mandiri"
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+            autoComplete="organization"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold">Nomor rekening</span>
+          <input
+            className="input"
+            placeholder="Nomor rekening"
+            inputMode="numeric"
+            value={bankAccountNumber}
+            onChange={(e) => setBankAccountNumber(e.target.value)}
+            autoComplete="off"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold">Atas nama / penerima</span>
+          <input
+            className="input"
+            placeholder="Nama pemilik rekening"
+            value={bankAccountHolder}
+            onChange={(e) => setBankAccountHolder(e.target.value)}
+            autoComplete="name"
+          />
+        </label>
       </div>
 
       <div className="panel rounded-2xl p-5">

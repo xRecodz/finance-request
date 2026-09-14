@@ -148,6 +148,21 @@ body {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.input::placeholder {
+  color: #8a6f74;
+  opacity: 1;
+}
+
+.input::-webkit-input-placeholder {
+  color: #8a6f74;
+  opacity: 1;
+}
+
+.input::-moz-placeholder {
+  color: #8a6f74;
+  opacity: 1;
+}
+
 .input:focus {
   border-color: var(--sli-red);
   box-shadow: 0 0 0 3px rgba(176, 16, 32, 0.12);
