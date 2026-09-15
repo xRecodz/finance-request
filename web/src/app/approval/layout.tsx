@@ -24,7 +24,7 @@ const nav: NavItem[] = [
 
 export default function ApprovalLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Guard roles={["APPROVER", "ADMIN"]}>
+    <Guard roles={["APPROVER", "MANAGER", "ADMIN"]}>
       <AppShell title="Portal Approval" nav={nav}>
         {children}
       </AppShell>

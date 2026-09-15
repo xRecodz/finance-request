@@ -44,6 +44,7 @@ export function typeLabel(type: string): string {
 
 export function statusTone(status: string): string {
   switch (status) {
+    case "MENUNGGU_MANAGER":
     case "MENUNGGU_APPROVAL":
     case "LPJ_MENUNGGU":
       return "badge-amber";

@@ -55,6 +55,7 @@ authRouter.post(
       throw new HttpError(403, "Akun Anda nonaktif. Hubungi admin HRD.");
     }
 
+    // APPROVER / MANAGER / ADMIN boleh masuk portal Pemohon juga (untuk mengajukan dana).
     if (portal === "APPROVAL" && user.role === UserRole.PEMOHON) {
       throw new HttpError(
         403,

@@ -72,13 +72,14 @@ export default function PemohonRequestsPage() {
         >
           <option value="">Semua status</option>
           <option value="DRAFT">1. Draft</option>
-          <option value="MENUNGGU_APPROVAL">2. Menunggu approval</option>
-          <option value="REVISI">3. Perlu revisi</option>
-          <option value="DISETUJUI">4. Disetujui</option>
-          <option value="DICAIRKAN">5. Dana dicairkan</option>
-          <option value="LPJ_MENUNGGU">6. LPJ menunggu verifikasi</option>
-          <option value="LPJ_DITOLAK">7. LPJ ditolak</option>
-          <option value="SELESAI">8. Selesai</option>
+          <option value="MENUNGGU_MANAGER">2. Menunggu manager</option>
+          <option value="MENUNGGU_APPROVAL">3. Menunggu approval</option>
+          <option value="REVISI">4. Perlu revisi</option>
+          <option value="DISETUJUI">5. Disetujui</option>
+          <option value="DICAIRKAN">6. Dana dicairkan</option>
+          <option value="LPJ_MENUNGGU">7. LPJ menunggu verifikasi</option>
+          <option value="LPJ_DITOLAK">8. LPJ ditolak</option>
+          <option value="SELESAI">9. Selesai</option>
           <option value="DITOLAK">Ditolak</option>
           <option value="DIBATALKAN">Dibatalkan</option>
         </select>

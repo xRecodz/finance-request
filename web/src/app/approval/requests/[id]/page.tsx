@@ -5,11 +5,13 @@ import { useParams } from "next/navigation";
 import { DocumentPreviewPanel } from "@/components/DocumentPreviewPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatDateTime, formatRupiah, trackLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
 export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [data, setData] = useState<RequestRow | null>(null);
   const [approvedAmount, setApprovedAmount] = useState(0);
   const [note, setNote] = useState("");
@@ -48,7 +50,11 @@ export default function ApprovalDetailPage() {
 
   async function onApprove(e: FormEvent) {
     e.preventDefault();
-    await act(`/api/approvals/${params.id}/approve`, { approvedAmount, note: note || null });
+    const body =
+      data?.status === "MENUNGGU_MANAGER"
+        ? { note: note || null }
+        : { approvedAmount, note: note || null };
+    await act(`/api/approvals/${params.id}/approve`, body);
   }
 
   async function onReject() {
@@ -87,6 +93,24 @@ export default function ApprovalDetailPage() {
 
   if (!data) return <div className="text-sli-muted">Memuat...</div>;
 
+  const isPureManager = user?.role === "MANAGER";
+  const canActAsAssignedManager =
+    user?.role === "ADMIN" || Boolean(data.manager && user && data.manager.id === user.id);
+
+  const stageLabel =
+    data.status === "MENUNGGU_MANAGER"
+      ? "Tahap Manager"
+      : data.status === "MENUNGGU_APPROVAL"
+        ? data.track === "DIREKTUR"
+          ? "Tahap Sekretariat"
+          : "Tahap Finance"
+        : null;
+
+  const showManagerDecision = data.status === "MENUNGGU_MANAGER" && canActAsAssignedManager;
+  const showFinanceDecision = data.status === "MENUNGGU_APPROVAL" && !isPureManager;
+  const showDisburse = data.status === "DISETUJUI" && !isPureManager;
+  const showLpjVerify = data.status === "LPJ_MENUNGGU" && data.lpj && !isPureManager;
+
   return (
     <div className="space-y-5">
       <div>
@@ -94,10 +118,18 @@ export default function ApprovalDetailPage() {
         <h1 className="brand-mark mt-1 text-3xl font-bold">{data.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <StatusBadge status={data.status} label={data.statusLabel} />
+          {stageLabel ? (
+            <span className="rounded-full bg-sli-red-soft px-2.5 py-0.5 text-xs font-semibold text-sli-red">
+              {stageLabel}
+            </span>
+          ) : null}
           <span className="text-sm text-sli-muted">
             {data.requester.name} · {trackLabel(data.track)}
           </span>
         </div>
+        {data.manager ? (
+          <p className="mt-1 text-sm text-sli-muted">Manager: {data.manager.name}</p>
+        ) : null}
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -110,7 +142,41 @@ export default function ApprovalDetailPage() {
 
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
 
-      {data.status === "MENUNGGU_APPROVAL" ? (
+      {showManagerDecision ? (
+        <form onSubmit={onApprove} className="panel space-y-3 rounded-2xl p-5">
+          <h2 className="font-semibold">Keputusan manager</h2>
+          <p className="text-sm text-sli-muted">
+            Setujui untuk meneruskan ke Finance, atau minta revisi / tolak.
+          </p>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold">Catatan</span>
+            <textarea className="input min-h-20" value={note} onChange={(e) => setNote(e.target.value)} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" disabled={busy} className="btn-primary rounded-xl px-4 py-2 text-sm font-semibold">
+              Setujui & teruskan ke Finance
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="btn-ghost rounded-xl px-4 py-2 text-sm font-semibold"
+              onClick={() => void onRevise()}
+            >
+              Minta Revisi
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-xl bg-sli-red-soft px-4 py-2 text-sm font-semibold text-sli-red"
+              onClick={() => void onReject()}
+            >
+              Tolak
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {showFinanceDecision ? (
         <form onSubmit={onApprove} className="panel space-y-3 rounded-2xl p-5">
           <h2 className="font-semibold">Keputusan approval</h2>
           <label className="block">
@@ -153,7 +219,7 @@ export default function ApprovalDetailPage() {
         </form>
       ) : null}
 
-      {data.status === "DISETUJUI" ? (
+      {showDisburse ? (
         <form onSubmit={onDisburse} className="panel space-y-3 rounded-2xl p-5">
           <h2 className="font-semibold">Pencairan dana</h2>
           <input
@@ -180,14 +246,14 @@ export default function ApprovalDetailPage() {
         </form>
       ) : null}
 
-      {data.status === "LPJ_MENUNGGU" && data.lpj ? (
+      {showLpjVerify ? (
         <div className="panel space-y-3 rounded-2xl p-5">
           <h2 className="font-semibold">Verifikasi LPJ</h2>
           <p className="text-sm text-sli-muted">
-            Realisasi {formatRupiah(data.lpj.totalRealisasi)} · Sisa {formatRupiah(data.lpj.sisaDana)}
+            Realisasi {formatRupiah(data.lpj!.totalRealisasi)} · Sisa {formatRupiah(data.lpj!.sisaDana)}
           </p>
           <ul className="space-y-2 text-sm">
-            {(data.lpj.items || []).map((item) => (
+            {(data.lpj!.items || []).map((item) => (
               <li key={item.id} className="flex justify-between gap-3 border-b border-sli-line pb-2">
                 <span>{item.description}</span>
                 <span className="font-semibold">{formatRupiah(item.amount)}</span>

@@ -142,6 +142,7 @@ export default function ItCreateUserPage() {
             >
               <option value="PEMOHON">Pemohon</option>
               <option value="APPROVER">Approver</option>
+              <option value="MANAGER">Manager</option>
               <option value="IT">IT</option>
             </select>
           </label>

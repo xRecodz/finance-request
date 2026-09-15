@@ -207,6 +207,9 @@ lpjRouter.post(
     if (!lpj) throw new HttpError(404, "LPJ tidak ditemukan");
 
     const user = req.user!;
+    if (user.role === UserRole.MANAGER) {
+      throw new HttpError(403, "Manager tidak dapat memverifikasi LPJ");
+    }
     if (user.role !== UserRole.ADMIN && lpj.request.approverId !== user.id) {
       throw new HttpError(403, "Anda bukan approver untuk pengajuan ini");
     }

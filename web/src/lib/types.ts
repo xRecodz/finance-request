@@ -1,11 +1,11 @@
 export type Portal = "PEMOHON" | "APPROVAL" | "IT";
 
-export type UserRole = "PEMOHON" | "APPROVER" | "ADMIN" | "IT";
+export type UserRole = "PEMOHON" | "APPROVER" | "MANAGER" | "ADMIN" | "IT";
 export type ApproverTrack = "DIREKTUR" | "FINANCE";
 
 export function homePathForRole(role: UserRole): string {
   if (role === "IT" || role === "ADMIN") return "/it";
-  if (role === "APPROVER") return "/approval";
+  if (role === "APPROVER" || role === "MANAGER") return "/approval";
   return "/pemohon";
 }
 
@@ -76,6 +76,7 @@ export type RequestRow = {
   completedAt?: string | null;
   createdAt: string;
   requester: { id: string; nip: string; name: string; position?: string | null };
+  manager?: { id: string; nip: string; name: string; position?: string | null } | null;
   approver: { id: string; nip: string; name: string; position?: string | null };
   category?: { id: string; code: string; name: string } | null;
   itemCount?: number;

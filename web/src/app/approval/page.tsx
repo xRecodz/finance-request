@@ -17,6 +17,7 @@ import {
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { downloadRequestsCsv } from "@/lib/exportCsv";
 import { formatRupiah } from "@/lib/format";
 import type { DashboardSummary, RequestRow } from "@/lib/types";
@@ -24,6 +25,11 @@ import type { DashboardSummary, RequestRow } from "@/lib/types";
 const COLORS = ["#b01020", "#7f0a16", "#d97706", "#0f7a4a", "#1d4f91", "#6b7280", "#be123c"];
 
 export default function ApprovalDashboard() {
+  const { user } = useAuth();
+  const isManager = user?.role === "MANAGER";
+  const pendingStatus = isManager
+    ? "MENUNGGU_MANAGER"
+    : "MENUNGGU_MANAGER,MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU";
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -37,16 +43,22 @@ export default function ApprovalDashboard() {
       setSummary(res.data)
     );
     void api<{ data: RequestRow[] }>(
-      "/api/requests?status=MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU&pageSize=8"
+      `/api/requests?status=${pendingStatus}&pageSize=8`
     ).then((res) => setPending(res.data));
-  }, [from, to]);
+  }, [from, to, pendingStatus]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="brand-mark text-3xl font-bold">Dashboard Approval</h1>
-          <p className="text-sli-muted">Pantau pendingan, nominal keluar, dan tren pengajuan.</p>
+          <h1 className="brand-mark text-3xl font-bold">
+            {isManager ? "Dashboard Manager" : "Dashboard Approval"}
+          </h1>
+          <p className="text-sli-muted">
+            {isManager
+              ? "Pantau pengajuan departemen Anda dan putuskan approve / revisi / tolak."
+              : "Pantau pendingan, nominal keluar, dan tren pengajuan."}
+          </p>
         </div>
         <div className="panel flex flex-wrap items-center gap-2 rounded-2xl p-2">
           <input className="input !w-auto" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -56,7 +68,7 @@ export default function ApprovalDashboard() {
             className="btn-ghost rounded-xl px-3 py-2 text-sm font-semibold"
             onClick={() => {
               const params = new URLSearchParams();
-              params.set("status", "MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU");
+              params.set("status", pendingStatus);
               if (from) params.set("from", from);
               if (to) params.set("to", to);
               void downloadRequestsCsv(params, `antrian-approval-${new Date().toISOString().slice(0, 10)}.csv`);

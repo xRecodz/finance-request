@@ -59,7 +59,7 @@ const createSchema = z
     phone: z.string().trim().optional().nullable(),
     position: z.string().trim().optional().nullable(),
     department: z.string().trim().optional().nullable(),
-    role: z.enum([UserRole.PEMOHON, UserRole.APPROVER, UserRole.IT]).default(UserRole.PEMOHON),
+    role: z.enum([UserRole.PEMOHON, UserRole.APPROVER, UserRole.MANAGER, UserRole.IT]).default(UserRole.PEMOHON),
     approverTrack: z.nativeEnum(ApproverTrack).optional().nullable(),
     isActive: z.boolean().default(true),
   })
@@ -80,7 +80,7 @@ const patchSchema = z
     phone: z.string().trim().optional().nullable(),
     position: z.string().trim().optional().nullable(),
     department: z.string().trim().optional().nullable(),
-    role: z.enum([UserRole.PEMOHON, UserRole.APPROVER, UserRole.IT]).optional(),
+    role: z.enum([UserRole.PEMOHON, UserRole.APPROVER, UserRole.MANAGER, UserRole.IT]).optional(),
     approverTrack: z.nativeEnum(ApproverTrack).optional().nullable(),
     isActive: z.boolean().optional(),
   })

@@ -18,7 +18,7 @@ const nav: NavItem[] = [
 
 export default function PemohonLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Guard roles={["PEMOHON", "APPROVER", "ADMIN"]}>
+    <Guard roles={["PEMOHON", "APPROVER", "MANAGER", "ADMIN"]}>
       <AppShell title="Portal Pemohon" nav={nav}>
         {children}
       </AppShell>

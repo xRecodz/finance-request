@@ -227,8 +227,8 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </h1>
           <p className="text-sli-muted">
             {mode === "create"
-              ? "Isi detail permohonan, item, dan tujuan approval."
-              : `${initial?.number || ""} — ubah data lalu simpan draft atau kirim ke approval.`}
+              ? "Isi detail permohonan dan item. Jalur Finance menunggu manager dulu, lalu Finance."
+              : `${initial?.number || ""} — ubah data lalu simpan draft atau kirim ulang.`}
           </p>
         </div>
         {mode === "edit" ? (
@@ -311,10 +311,10 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </select>
           <p className="mt-1 text-xs text-sli-muted">
             {track === "DIREKTUR"
-              ? "Approval ke Sekretariat. Head Office / Outlet menentukan kategori."
+              ? "Approval langsung ke Sekretariat. Head Office / Outlet menentukan kategori."
               : dest === "OUTLET"
-                ? "Approval ke Finance (Outlet). Kategori: daftar outlet."
-                : "Approval ke Finance (Head Office). Kategori: tanpa Operasional."}
+                ? "Setelah diajukan: menunggu approval manager (sesuai departemen Anda), lalu Finance (Outlet)."
+                : "Setelah diajukan: menunggu approval manager (sesuai departemen Anda), lalu Finance (Head Office)."}
           </p>
         </label>
 

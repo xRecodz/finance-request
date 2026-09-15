@@ -22,17 +22,42 @@ export const approvalsRouter = Router();
 approvalsRouter.use(
   requireAuth,
   requirePasswordChanged,
-  requireRoles(UserRole.APPROVER, UserRole.ADMIN)
+  requireRoles(UserRole.APPROVER, UserRole.MANAGER, UserRole.ADMIN)
 );
 
-/** Approver hanya boleh menyentuh pengajuan yang memang ditujukan kepadanya. */
+type LoadedRequest = Prisma.RequestGetPayload<{ include: typeof requestDetailInclude }>;
+
+function canActAsManager(user: AuthedRequest["user"], request: LoadedRequest) {
+  if (user!.role === UserRole.ADMIN) return true;
+  return request.managerId === user!.id;
+}
+
+function canActAsApprover(user: AuthedRequest["user"], request: LoadedRequest) {
+  if (user!.role === UserRole.ADMIN) return true;
+  // Pure MANAGER (bukan dual-role approver) tidak boleh approve Finance.
+  if (user!.role === UserRole.MANAGER) return false;
+  return request.approverId === user!.id;
+}
+
+/** Manager / Finance / Sekretariat hanya boleh menyentuh pengajuan di tahap mereka. */
 async function findAssignedRequest(id: string, user: AuthedRequest["user"]) {
   const request = await prisma.request.findUnique({
     where: { id },
     include: requestDetailInclude,
   });
   if (!request) throw new HttpError(404, "Pengajuan tidak ditemukan");
-  if (user!.role !== UserRole.ADMIN && request.approverId !== user!.id) {
+
+  if (user!.role === UserRole.ADMIN) return request;
+
+  // Manager assigned (role MANAGER, atau APPROVER dual-role seperti Sekretariat+GA).
+  if (request.managerId === user!.id) return request;
+
+  if (user!.role === UserRole.MANAGER) {
+    throw new HttpError(403, "Pengajuan ini bukan ditujukan kepada Anda");
+  }
+
+  // APPROVER (Finance / Sekretariat)
+  if (request.approverId !== user!.id) {
     throw new HttpError(403, "Pengajuan ini bukan ditujukan kepada Anda");
   }
   return request;
@@ -49,8 +74,60 @@ approvalsRouter.post(
     const body = decisionSchema.parse(req.body);
     const request = await findAssignedRequest(req.params.id, req.user);
 
+    if (request.status === RequestStatus.MENUNGGU_MANAGER) {
+      if (!canActAsManager(req.user, request)) {
+        throw new HttpError(403, "Pengajuan masih menunggu keputusan manager");
+      }
+
+      const updated = await prisma.request.update({
+        where: { id: request.id },
+        data: {
+          status: RequestStatus.MENUNGGU_APPROVAL,
+          decisionNote: body.note || null,
+          logs: {
+            create: {
+              actorId: req.user!.id,
+              action: "MANAGER_APPROVE",
+              fromStatus: request.status,
+              toStatus: RequestStatus.MENUNGGU_APPROVAL,
+              note: body.note || "Disetujui manager — diteruskan ke Finance",
+            },
+          },
+        },
+        include: requestDetailInclude,
+      });
+
+      notify({
+        userId: updated.approverId,
+        title: "Pengajuan lolos manager — menunggu Finance",
+        body: `${updated.number} dari ${updated.requester.name} sudah disetujui manager. Silakan review.`,
+        requestId: updated.id,
+      });
+      notify({
+        userId: updated.requesterId,
+        title: "Pengajuan disetujui manager",
+        body: `${updated.number} disetujui manager. Menunggu approval Finance.`,
+        requestId: updated.id,
+      });
+
+      logActivity({
+        actorId: req.user!.id,
+        action: "MANAGER_APPROVE",
+        entity: "Request",
+        entityId: updated.id,
+        detail: updated.number,
+        ip: req.ip,
+      });
+
+      res.json({ data: serializeRequestDetail(updated) });
+      return;
+    }
+
     if (request.status !== RequestStatus.MENUNGGU_APPROVAL) {
       throw new HttpError(409, "Pengajuan ini tidak sedang menunggu approval");
+    }
+    if (!canActAsApprover(req.user, request)) {
+      throw new HttpError(403, "Manager tidak dapat melakukan approval Finance");
     }
 
     const requested = toNumber(request.totalAmount);
@@ -113,8 +190,17 @@ approvalsRouter.post(
     const body = rejectSchema.parse(req.body);
     const request = await findAssignedRequest(req.params.id, req.user);
 
-    if (request.status !== RequestStatus.MENUNGGU_APPROVAL) {
+    const waitingManager = request.status === RequestStatus.MENUNGGU_MANAGER;
+    const waitingApprover = request.status === RequestStatus.MENUNGGU_APPROVAL;
+
+    if (!waitingManager && !waitingApprover) {
       throw new HttpError(409, "Pengajuan ini tidak sedang menunggu approval");
+    }
+    if (waitingManager && !canActAsManager(req.user, request)) {
+      throw new HttpError(403, "Pengajuan masih menunggu keputusan manager");
+    }
+    if (waitingApprover && !canActAsApprover(req.user, request)) {
+      throw new HttpError(403, "Manager tidak dapat menolak di tahap Finance");
     }
 
     const updated = await prisma.request.update({
@@ -126,7 +212,7 @@ approvalsRouter.post(
         logs: {
           create: {
             actorId: req.user!.id,
-            action: "REJECT",
+            action: waitingManager ? "MANAGER_REJECT" : "REJECT",
             fromStatus: request.status,
             toStatus: RequestStatus.DITOLAK,
             note: body.note,
@@ -138,14 +224,14 @@ approvalsRouter.post(
 
     notify({
       userId: updated.requesterId,
-      title: "Pengajuan ditolak",
+      title: waitingManager ? "Pengajuan ditolak manager" : "Pengajuan ditolak",
       body: `${updated.number} ditolak. Alasan: ${body.note}`,
       requestId: updated.id,
     });
 
     logActivity({
       actorId: req.user!.id,
-      action: "REJECT",
+      action: waitingManager ? "MANAGER_REJECT" : "REJECT",
       entity: "Request",
       entityId: updated.id,
       detail: updated.number,
@@ -162,8 +248,17 @@ approvalsRouter.post(
     const body = rejectSchema.parse(req.body);
     const request = await findAssignedRequest(req.params.id, req.user);
 
-    if (request.status !== RequestStatus.MENUNGGU_APPROVAL) {
+    const waitingManager = request.status === RequestStatus.MENUNGGU_MANAGER;
+    const waitingApprover = request.status === RequestStatus.MENUNGGU_APPROVAL;
+
+    if (!waitingManager && !waitingApprover) {
       throw new HttpError(409, "Pengajuan ini tidak sedang menunggu approval");
+    }
+    if (waitingManager && !canActAsManager(req.user, request)) {
+      throw new HttpError(403, "Pengajuan masih menunggu keputusan manager");
+    }
+    if (waitingApprover && !canActAsApprover(req.user, request)) {
+      throw new HttpError(403, "Manager tidak dapat minta revisi di tahap Finance");
     }
 
     const updated = await prisma.request.update({
@@ -174,7 +269,7 @@ approvalsRouter.post(
         logs: {
           create: {
             actorId: req.user!.id,
-            action: "REQUEST_REVISION",
+            action: waitingManager ? "MANAGER_REQUEST_REVISION" : "REQUEST_REVISION",
             fromStatus: request.status,
             toStatus: RequestStatus.REVISI,
             note: body.note,
@@ -205,6 +300,10 @@ approvalsRouter.post(
   "/:id/disburse",
   upload.single("proof"),
   asyncHandler<AuthedRequest>(async (req, res) => {
+    if (req.user!.role === UserRole.MANAGER) {
+      throw new HttpError(403, "Manager tidak dapat mencairkan dana");
+    }
+
     const body = disburseSchema.parse(req.body);
     const request = await findAssignedRequest(req.params.id, req.user);
 

@@ -12,6 +12,7 @@ datasource db {
 enum UserRole {
   PEMOHON
   APPROVER
+  MANAGER
   ADMIN
   IT
 }
@@ -30,6 +31,7 @@ enum RequestType {
 
 enum RequestStatus {
   DRAFT
+  MENUNGGU_MANAGER
   MENUNGGU_APPROVAL
   REVISI
   DITOLAK
@@ -90,6 +92,7 @@ model User {
 
   requestsCreated  Request[]      @relation("RequestRequester")
   requestsAssigned Request[]      @relation("RequestApprover")
+  requestsManaged  Request[]      @relation("RequestManager")
   approvalLogs     ApprovalLog[]
   lpjSubmitted     Lpj[]          @relation("LpjSubmitter")
   lpjVerified      Lpj[]          @relation("LpjVerifier")
@@ -127,6 +130,9 @@ model Request {
 
   requesterId String
   requester   User   @relation("RequestRequester", fields: [requesterId], references: [id])
+  /// Manager departemen (track FINANCE). Null untuk track Sekretariat.
+  managerId String?
+  manager   User?  @relation("RequestManager", fields: [managerId], references: [id])
   approverId  String
   approver    User   @relation("RequestApprover", fields: [approverId], references: [id])
 
@@ -167,6 +173,7 @@ model Request {
   notifications Notification[]
 
   @@index([requesterId, status])
+  @@index([managerId, status])
   @@index([approverId, status])
   @@index([status, createdAt])
   @@index([track, createdAt])

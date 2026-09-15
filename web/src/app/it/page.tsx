@@ -8,6 +8,7 @@ import type { ManagedUser, UserRole } from "@/lib/types";
 const ROLE_LABEL: Record<UserRole, string> = {
   PEMOHON: "Pemohon",
   APPROVER: "Approver",
+  MANAGER: "Manager",
   ADMIN: "Admin",
   IT: "IT",
 };
@@ -88,6 +89,7 @@ export default function ItUsersPage() {
             <option value="">Semua</option>
             <option value="PEMOHON">Pemohon</option>
             <option value="APPROVER">Approver</option>
+            <option value="MANAGER">Manager</option>
             <option value="IT">IT</option>
             <option value="ADMIN">Admin</option>
           </select>

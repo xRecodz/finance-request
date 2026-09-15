@@ -16,6 +16,7 @@
     "db:studio": "prisma studio",
     "hris:extract": "tsx scripts/extract-hris-nip.ts",
     "approvers:sync": "tsx scripts/sync-approver-whitelist.ts",
+    "managers:sync": "tsx scripts/sync-manager-map.ts",
     "admin:ensure": "tsx scripts/ensure-admin.ts",
     "categories:sync": "tsx scripts/sync-categories.ts",
     "requests:delete-by-nip": "tsx scripts/delete-requests-by-nip.ts",

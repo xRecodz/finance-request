@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { logActivity } from "../lib/activity";
+import { resolveManagerForDepartment } from "../lib/manager";
 import { formatRupiah, notify } from "../lib/notify";
 import { generateRequestNumber } from "../lib/numbering";
 import { prisma } from "../lib/prisma";
@@ -60,8 +61,9 @@ const listQuerySchema = z.object({
   type: z.nativeEnum(RequestType).optional(),
   requesterId: z.string().optional(),
   approverId: z.string().optional(),
-  /** requester = pengajuan yang saya buat; approver = yang ditujukan ke saya */
-  as: z.enum(["requester", "approver"]).optional(),
+  managerId: z.string().optional(),
+  /** requester = pengajuan yang saya buat; approver/manager = antrian saya */
+  as: z.enum(["requester", "approver", "manager"]).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   q: z.string().trim().optional(),
@@ -111,6 +113,41 @@ async function assertApproverValid(
   return approver;
 }
 
+/** Finance → manager dulu; Sekretariat → langsung approval. */
+async function resolveSubmitAssignment(params: {
+  track: ApproverTrack;
+  approverId: string;
+  requesterId: string;
+}) {
+  await assertApproverValid(params.approverId, params.track, params.requesterId);
+
+  if (params.track === ApproverTrack.DIREKTUR) {
+    return {
+      managerId: null as string | null,
+      status: RequestStatus.MENUNGGU_APPROVAL,
+      notifyUserId: params.approverId,
+      submitNote: "Pengajuan dikirim ke Sekretariat",
+      notifyTitle: "Pengajuan baru menunggu approval",
+    };
+  }
+
+  const requester = await prisma.user.findUnique({
+    where: { id: params.requesterId },
+    select: { department: true, position: true, name: true },
+  });
+  const manager = await resolveManagerForDepartment(
+    requester?.department,
+    requester?.position
+  );
+  return {
+    managerId: manager.id,
+    status: RequestStatus.MENUNGGU_MANAGER,
+    notifyUserId: manager.id,
+    submitNote: "Pengajuan dikirim ke manager departemen",
+    notifyTitle: "Pengajuan baru menunggu approval manager",
+  };
+}
+
 async function findRequestOr404(id: string) {
   const request = await prisma.request.findUnique({
     where: { id },
@@ -120,10 +157,19 @@ async function findRequestOr404(id: string) {
   return request;
 }
 
-function assertCanView(request: { requesterId: string; approverId: string }, user: AuthedRequest["user"]) {
+function assertCanView(
+  request: { requesterId: string; approverId: string; managerId: string | null },
+  user: AuthedRequest["user"]
+) {
   if (!user) throw new HttpError(401, "Unauthorized");
   if (user.role === UserRole.ADMIN) return;
-  if (request.requesterId === user.id || request.approverId === user.id) return;
+  if (
+    request.requesterId === user.id ||
+    request.approverId === user.id ||
+    request.managerId === user.id
+  ) {
+    return;
+  }
   throw new HttpError(403, "Anda tidak memiliki akses ke pengajuan ini");
 }
 
@@ -131,6 +177,42 @@ function assertOwner(request: { requesterId: string }, user: AuthedRequest["user
   if (request.requesterId !== user!.id) {
     throw new HttpError(403, "Hanya pemohon yang bisa mengubah pengajuan ini");
   }
+}
+
+function applyListScope(
+  where: Prisma.RequestWhereInput,
+  user: AuthedRequest["user"],
+  query: z.infer<typeof listQuerySchema>
+) {
+  if (query.as === "requester" || user!.role === UserRole.PEMOHON) {
+    where.requesterId = user!.id;
+  } else if (query.as === "manager" || user!.role === UserRole.MANAGER) {
+    where.managerId = user!.id;
+  } else if (user!.role === UserRole.APPROVER) {
+    // Approver dual-role (mis. Sekretariat + manager GA): antrian approval + antrian manager.
+    where.AND = [...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : []), {
+      OR: [{ approverId: user!.id }, { managerId: user!.id }],
+    }];
+  } else {
+    if (query.requesterId) where.requesterId = query.requesterId;
+    if (query.approverId) where.approverId = query.approverId;
+    if (query.managerId) where.managerId = query.managerId;
+  }
+}
+
+function applySearchFilter(where: Prisma.RequestWhereInput, q?: string) {
+  if (!q) return;
+  const searchOr: Prisma.RequestWhereInput[] = [
+    { number: { contains: q } },
+    { title: { contains: q } },
+    { purpose: { contains: q } },
+    { requester: { name: { contains: q } } },
+    { requester: { nip: { contains: q } } },
+  ];
+  where.AND = [
+    ...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : []),
+    { OR: searchOr },
+  ];
 }
 
 const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.REVISI];
@@ -144,16 +226,7 @@ requestsRouter.get(
     const user = req.user!;
 
     const where: Prisma.RequestWhereInput = {};
-
-    // Portal pemohon mengirim as=requester (termasuk jika user role-nya APPROVER).
-    if (query.as === "requester" || user.role === UserRole.PEMOHON) {
-      where.requesterId = user.id;
-    } else if (user.role === UserRole.APPROVER) {
-      where.approverId = user.id;
-    } else {
-      if (query.requesterId) where.requesterId = query.requesterId;
-      if (query.approverId) where.approverId = query.approverId;
-    }
+    applyListScope(where, user, query);
 
     if (query.status) {
       const statuses = query.status
@@ -172,15 +245,7 @@ requestsRouter.get(
       };
     }
 
-    if (query.q) {
-      where.OR = [
-        { number: { contains: query.q } },
-        { title: { contains: query.q } },
-        { purpose: { contains: query.q } },
-        { requester: { name: { contains: query.q } } },
-        { requester: { nip: { contains: query.q } } },
-      ];
-    }
+    applySearchFilter(where, query.q);
 
     const [total, rows] = await Promise.all([
       prisma.request.count({ where }),
@@ -212,15 +277,7 @@ requestsRouter.get(
     const query = listQuerySchema.parse({ ...req.query, page: 1, pageSize: 5000 });
     const user = req.user!;
     const where: Prisma.RequestWhereInput = {};
-
-    if (query.as === "requester" || user.role === UserRole.PEMOHON) {
-      where.requesterId = user.id;
-    } else if (user.role === UserRole.APPROVER) {
-      where.approverId = user.id;
-    } else {
-      if (query.requesterId) where.requesterId = query.requesterId;
-      if (query.approverId) where.approverId = query.approverId;
-    }
+    applyListScope(where, user, query);
 
     if (query.status) {
       const statuses = query.status
@@ -237,15 +294,7 @@ requestsRouter.get(
         ...(query.to ? { lte: endOfDay(query.to) } : {}),
       };
     }
-    if (query.q) {
-      where.OR = [
-        { number: { contains: query.q } },
-        { title: { contains: query.q } },
-        { purpose: { contains: query.q } },
-        { requester: { name: { contains: query.q } } },
-        { requester: { nip: { contains: query.q } } },
-      ];
-    }
+    applySearchFilter(where, query.q);
 
     const rows = await prisma.request.findMany({
       where,
@@ -268,6 +317,7 @@ requestsRouter.get(
       "Status",
       "Pemohon NIP",
       "Pemohon",
+      "Manager",
       "Approver",
       "Total",
       "Disetujui",
@@ -285,6 +335,7 @@ requestsRouter.get(
           escape(s.statusLabel),
           escape(s.requester.nip),
           escape(s.requester.name),
+          escape(s.manager?.name ?? ""),
           escape(s.approver.name),
           escape(s.totalAmount),
           escape(s.approvedAmount ?? ""),
@@ -315,17 +366,53 @@ requestsRouter.post(
     const body = requestBodySchema.parse(req.body);
     const user = req.user!;
 
-    await assertApproverValid(body.approverId, body.track, user.id);
     const { prepared, total } = computeItems(body.items);
+    const submitting = body.submit;
+
+    let managerId: string | null = null;
+    let submitStatus: RequestStatus = RequestStatus.MENUNGGU_APPROVAL;
+    let notifyUserId: string | null = null;
+    let submitNote = "Pengajuan dikirim ke approver";
+    let notifyTitle = "Pengajuan baru menunggu approval";
+
+    if (submitting) {
+      const assignment = await resolveSubmitAssignment({
+        track: body.track,
+        approverId: body.approverId,
+        requesterId: user.id,
+      });
+      managerId = assignment.managerId;
+      submitStatus = assignment.status;
+      notifyUserId = assignment.notifyUserId;
+      submitNote = assignment.submitNote;
+      notifyTitle = assignment.notifyTitle;
+    } else {
+      await assertApproverValid(body.approverId, body.track, user.id);
+      if (body.track === ApproverTrack.FINANCE) {
+        try {
+          const requester = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { department: true, position: true },
+          });
+          const manager = await resolveManagerForDepartment(
+            requester?.department,
+            requester?.position
+          );
+          managerId = manager.id;
+        } catch {
+          managerId = null;
+        }
+      }
+    }
 
     const created = await prisma.$transaction(async (tx) => {
       const number = await generateRequestNumber(tx);
-      const submitting = body.submit;
 
       return tx.request.create({
         data: {
           number,
           requesterId: user.id,
+          managerId,
           approverId: body.approverId,
           track: body.track,
           type: body.type,
@@ -337,15 +424,15 @@ requestsRouter.post(
           bankAccountNumber: body.bankAccountNumber || null,
           bankAccountHolder: body.bankAccountHolder || null,
           totalAmount: new Prisma.Decimal(total),
-          status: submitting ? RequestStatus.MENUNGGU_APPROVAL : RequestStatus.DRAFT,
+          status: submitting ? submitStatus : RequestStatus.DRAFT,
           submittedAt: submitting ? new Date() : null,
           items: { create: prepared },
           logs: {
             create: {
               actorId: user.id,
               action: submitting ? "SUBMIT" : "CREATE_DRAFT",
-              toStatus: submitting ? RequestStatus.MENUNGGU_APPROVAL : RequestStatus.DRAFT,
-              note: submitting ? "Pengajuan dikirim ke approver" : "Pengajuan disimpan sebagai draft",
+              toStatus: submitting ? submitStatus : RequestStatus.DRAFT,
+              note: submitting ? submitNote : "Pengajuan disimpan sebagai draft",
             },
           },
         },
@@ -353,10 +440,10 @@ requestsRouter.post(
       });
     });
 
-    if (created.status === RequestStatus.MENUNGGU_APPROVAL) {
+    if (submitting && notifyUserId) {
       notify({
-        userId: created.approverId,
-        title: "Pengajuan baru menunggu approval",
+        userId: notifyUserId,
+        title: notifyTitle,
         body: `${created.requester.name} mengajukan ${created.number} sebesar ${formatRupiah(total)}.`,
         requestId: created.id,
       });
@@ -389,15 +476,54 @@ requestsRouter.patch(
       );
     }
 
-    await assertApproverValid(body.approverId, body.track, req.user!.id);
     const { prepared, total } = computeItems(body.items);
     const submitting = body.submit;
+
+    let managerId: string | null = null;
+    let submitStatus: RequestStatus = RequestStatus.MENUNGGU_APPROVAL;
+    let notifyUserId: string | null = null;
+    let submitNote = "Pengajuan dikirim ulang setelah revisi";
+    let notifyTitle = "Pengajuan diperbarui & dikirim ulang";
+
+    if (submitting) {
+      const assignment = await resolveSubmitAssignment({
+        track: body.track,
+        approverId: body.approverId,
+        requesterId: req.user!.id,
+      });
+      managerId = assignment.managerId;
+      submitStatus = assignment.status;
+      notifyUserId = assignment.notifyUserId;
+      submitNote = assignment.submitNote;
+      notifyTitle =
+        assignment.status === RequestStatus.MENUNGGU_MANAGER
+          ? "Pengajuan dikirim ulang ke manager"
+          : "Pengajuan diperbarui & dikirim ulang";
+    } else {
+      await assertApproverValid(body.approverId, body.track, req.user!.id);
+      if (body.track === ApproverTrack.FINANCE) {
+        try {
+          const requester = await prisma.user.findUnique({
+            where: { id: req.user!.id },
+            select: { department: true, position: true },
+          });
+          const manager = await resolveManagerForDepartment(
+            requester?.department,
+            requester?.position
+          );
+          managerId = manager.id;
+        } catch {
+          managerId = existing.managerId;
+        }
+      }
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       await tx.requestItem.deleteMany({ where: { requestId: existing.id } });
       return tx.request.update({
         where: { id: existing.id },
         data: {
+          managerId,
           approverId: body.approverId,
           track: body.track,
           type: body.type,
@@ -409,16 +535,19 @@ requestsRouter.patch(
           bankAccountNumber: body.bankAccountNumber || null,
           bankAccountHolder: body.bankAccountHolder || null,
           totalAmount: new Prisma.Decimal(total),
-          status: submitting ? RequestStatus.MENUNGGU_APPROVAL : existing.status,
+          status: submitting ? submitStatus : existing.status,
           submittedAt: submitting ? new Date() : existing.submittedAt,
+          decidedAt: submitting ? null : existing.decidedAt,
+          decisionNote: submitting ? null : existing.decisionNote,
+          approvedAmount: submitting ? null : existing.approvedAmount,
           items: { create: prepared },
           logs: {
             create: {
               actorId: req.user!.id,
               action: submitting ? "RESUBMIT" : "UPDATE",
               fromStatus: existing.status,
-              toStatus: submitting ? RequestStatus.MENUNGGU_APPROVAL : existing.status,
-              note: submitting ? "Pengajuan dikirim ulang setelah revisi" : "Pengajuan diperbarui",
+              toStatus: submitting ? submitStatus : existing.status,
+              note: submitting ? submitNote : "Pengajuan diperbarui",
             },
           },
         },
@@ -426,10 +555,10 @@ requestsRouter.patch(
       });
     });
 
-    if (submitting) {
+    if (submitting && notifyUserId) {
       notify({
-        userId: updated.approverId,
-        title: "Pengajuan diperbarui & dikirim ulang",
+        userId: notifyUserId,
+        title: notifyTitle,
         body: `${updated.requester.name} mengirim ulang ${updated.number} sebesar ${formatRupiah(total)}.`,
         requestId: updated.id,
       });
@@ -461,18 +590,28 @@ requestsRouter.post(
       throw new HttpError(400, "Tambahkan minimal satu item sebelum mengirim");
     }
 
+    const assignment = await resolveSubmitAssignment({
+      track: existing.track,
+      approverId: existing.approverId,
+      requesterId: req.user!.id,
+    });
+
     const updated = await prisma.request.update({
       where: { id: existing.id },
       data: {
-        status: RequestStatus.MENUNGGU_APPROVAL,
+        managerId: assignment.managerId,
+        status: assignment.status,
         submittedAt: new Date(),
+        decidedAt: null,
+        decisionNote: null,
+        approvedAmount: null,
         logs: {
           create: {
             actorId: req.user!.id,
             action: "SUBMIT",
             fromStatus: existing.status,
-            toStatus: RequestStatus.MENUNGGU_APPROVAL,
-            note: "Pengajuan dikirim ke approver",
+            toStatus: assignment.status,
+            note: assignment.submitNote,
           },
         },
       },
@@ -480,8 +619,8 @@ requestsRouter.post(
     });
 
     notify({
-      userId: updated.approverId,
-      title: "Pengajuan baru menunggu approval",
+      userId: assignment.notifyUserId,
+      title: assignment.notifyTitle,
       body: `${updated.requester.name} mengajukan ${updated.number}.`,
       requestId: updated.id,
     });
@@ -498,6 +637,7 @@ requestsRouter.post(
 
     const cancellable: RequestStatus[] = [
       RequestStatus.DRAFT,
+      RequestStatus.MENUNGGU_MANAGER,
       RequestStatus.MENUNGGU_APPROVAL,
       RequestStatus.REVISI,
     ];

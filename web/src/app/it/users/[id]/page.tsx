@@ -205,6 +205,7 @@ export default function ItEditUserPage() {
             >
               <option value="PEMOHON">Pemohon</option>
               <option value="APPROVER">Approver</option>
+              <option value="MANAGER">Manager</option>
               <option value="IT">IT</option>
               {isAdminTarget ? <option value="ADMIN">Admin</option> : null}
             </select>

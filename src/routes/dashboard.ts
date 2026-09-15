@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   DISBURSED_STATUSES,
   PENDING_APPROVAL_STATUSES,
+  PENDING_MANAGER_STATUSES,
   STATUS_LABEL,
 } from "../lib/requestView";
 import { prisma } from "../lib/prisma";
@@ -23,7 +24,7 @@ dashboardRouter.use(requireAuth, requirePasswordChanged);
 const rangeSchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
-  as: z.enum(["requester", "approver"]).optional(),
+  as: z.enum(["requester", "approver", "manager"]).optional(),
 });
 
 function endOfDay(date: Date): Date {
@@ -36,13 +37,15 @@ function scopeWhere(
   user: AuthedRequest["user"],
   from?: Date,
   to?: Date,
-  as?: "requester" | "approver"
+  as?: "requester" | "approver" | "manager"
 ): Prisma.RequestWhereInput {
   const where: Prisma.RequestWhereInput = {};
   if (as === "requester" || user!.role === UserRole.PEMOHON) {
     where.requesterId = user!.id;
+  } else if (as === "manager" || user!.role === UserRole.MANAGER) {
+    where.managerId = user!.id;
   } else if (user!.role === UserRole.APPROVER) {
-    where.approverId = user!.id;
+    where.OR = [{ approverId: user!.id }, { managerId: user!.id }];
   }
 
   if (from || to) {
@@ -61,6 +64,10 @@ dashboardRouter.get(
     const user = req.user!;
     const where = scopeWhere(user, from, to, as);
     const asRequester = as === "requester" || user.role === UserRole.PEMOHON;
+    const pendingStatuses =
+      user.role === UserRole.MANAGER
+        ? PENDING_MANAGER_STATUSES
+        : [...PENDING_MANAGER_STATUSES, ...PENDING_APPROVAL_STATUSES];
 
     const [byStatus, amountAgg, pendingCount, historyPeers] = await Promise.all([
       prisma.request.groupBy({
@@ -80,14 +87,20 @@ dashboardRouter.get(
       prisma.request.count({
         where: {
           ...where,
-          status: { in: PENDING_APPROVAL_STATUSES },
+          status: { in: pendingStatuses },
         },
       }),
-      !asRequester && (user.role === UserRole.APPROVER || user.role === UserRole.ADMIN)
+      !asRequester &&
+      (user.role === UserRole.APPROVER ||
+        user.role === UserRole.MANAGER ||
+        user.role === UserRole.ADMIN)
         ? prisma.request.groupBy({
             by: ["requesterId"],
             where: {
-              ...(user.role === UserRole.APPROVER ? { approverId: user.id } : {}),
+              ...(user.role === UserRole.APPROVER
+                ? { OR: [{ approverId: user.id }, { managerId: user.id }] }
+                : {}),
+              ...(user.role === UserRole.MANAGER ? { managerId: user.id } : {}),
               ...(from || to
                 ? {
                     createdAt: {

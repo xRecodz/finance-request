@@ -13,6 +13,7 @@ export const userBriefSelect = {
 
 export const requestDetailInclude = {
   requester: { select: userBriefSelect },
+  manager: { select: userBriefSelect },
   approver: { select: userBriefSelect },
   category: true,
   items: { orderBy: { sortOrder: "asc" } },
@@ -36,6 +37,7 @@ export const requestDetailInclude = {
 
 export const requestListInclude = {
   requester: { select: userBriefSelect },
+  manager: { select: userBriefSelect },
   approver: { select: userBriefSelect },
   category: { select: { id: true, code: true, name: true } },
   lpj: { select: { id: true, status: true, submittedAt: true } },
@@ -47,6 +49,7 @@ type RequestListRow = Prisma.RequestGetPayload<{ include: typeof requestListIncl
 
 export const STATUS_LABEL: Record<RequestStatus, string> = {
   DRAFT: "Draft",
+  MENUNGGU_MANAGER: "Menunggu Approval Manager",
   MENUNGGU_APPROVAL: "Menunggu Approval",
   REVISI: "Perlu Revisi",
   DITOLAK: "Ditolak",
@@ -58,11 +61,16 @@ export const STATUS_LABEL: Record<RequestStatus, string> = {
   DIBATALKAN: "Dibatalkan",
 };
 
-/** Status yang masih menyita perhatian approver (dipakai untuk kartu "pendingan"). */
+/** Status yang masih menyita perhatian approver Finance/Sekretariat. */
 export const PENDING_APPROVAL_STATUSES: RequestStatus[] = [
   RequestStatus.MENUNGGU_APPROVAL,
   RequestStatus.DISETUJUI,
   RequestStatus.LPJ_MENUNGGU,
+];
+
+/** Status antrian untuk Manager. */
+export const PENDING_MANAGER_STATUSES: RequestStatus[] = [
+  RequestStatus.MENUNGGU_MANAGER,
 ];
 
 /** Status yang menandakan dana sudah keluar dari kas perusahaan. */
@@ -92,6 +100,7 @@ export function serializeRequestList(row: RequestListRow) {
     completedAt: row.completedAt,
     createdAt: row.createdAt,
     requester: row.requester,
+    manager: row.manager,
     approver: row.approver,
     category: row.category,
     lpj: row.lpj,
@@ -127,6 +136,7 @@ export function serializeRequestDetail(row: RequestDetail) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     requester: row.requester,
+    manager: row.manager,
     approver: row.approver,
     category: row.category,
     items: row.items.map((item) => ({

@@ -4,14 +4,20 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { downloadRequestsCsv } from "@/lib/exportCsv";
 import { formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
+const MANAGER_PENDING = "MENUNGGU_MANAGER";
+const APPROVER_PENDING = "MENUNGGU_MANAGER,MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU";
+
 export default function ApprovalRequestsPage() {
+  const { user } = useAuth();
+  const isManager = user?.role === "MANAGER";
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU");
+  const [status, setStatus] = useState(APPROVER_PENDING);
   const [track, setTrack] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -20,6 +26,12 @@ export default function ApprovalRequestsPage() {
   const [total, setTotal] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!user) return;
+    setStatus(user.role === "MANAGER" ? MANAGER_PENDING : APPROVER_PENDING);
+    setPage(1);
+  }, [user?.role]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -63,7 +75,11 @@ export default function ApprovalRequestsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="brand-mark text-3xl font-bold">Antrian & Riwayat</h1>
-          <p className="text-sli-muted">Filter berdasarkan status, jalur, dan rentang tanggal.</p>
+          <p className="text-sli-muted">
+            {isManager
+              ? "Pantau dan putuskan pengajuan dari departemen Anda. Gunakan pencarian untuk menemukan data."
+              : "Filter berdasarkan status, jalur, dan rentang tanggal."}
+          </p>
         </div>
         <button
           type="button"
@@ -96,19 +112,22 @@ export default function ApprovalRequestsPage() {
           }}
         >
           <optgroup label="Ringkasan">
-            <option value="MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU">
-              Pending aktif (perlu tindakan)
-            </option>
+            {isManager ? (
+              <option value={MANAGER_PENDING}>Pending manager (perlu tindakan)</option>
+            ) : (
+              <option value={APPROVER_PENDING}>Pending aktif (perlu tindakan)</option>
+            )}
             <option value="">Semua status</option>
           </optgroup>
           <optgroup label="Urutan proses">
-            <option value="MENUNGGU_APPROVAL">1. Menunggu approval</option>
-            <option value="REVISI">2. Perlu revisi</option>
-            <option value="DISETUJUI">3. Disetujui (siap cair)</option>
-            <option value="DICAIRKAN">4. Dana dicairkan</option>
-            <option value="LPJ_MENUNGGU">5. LPJ menunggu verifikasi</option>
-            <option value="LPJ_DITOLAK">6. LPJ ditolak</option>
-            <option value="SELESAI">7. Selesai</option>
+            <option value="MENUNGGU_MANAGER">1. Menunggu manager</option>
+            <option value="MENUNGGU_APPROVAL">2. Menunggu approval</option>
+            <option value="REVISI">3. Perlu revisi</option>
+            <option value="DISETUJUI">4. Disetujui (siap cair)</option>
+            <option value="DICAIRKAN">5. Dana dicairkan</option>
+            <option value="LPJ_MENUNGGU">6. LPJ menunggu verifikasi</option>
+            <option value="LPJ_DITOLAK">7. LPJ ditolak</option>
+            <option value="SELESAI">8. Selesai</option>
           </optgroup>
           <optgroup label="Lainnya">
             <option value="DITOLAK">Ditolak</option>
@@ -127,7 +146,7 @@ export default function ApprovalRequestsPage() {
           <option value="DIREKTUR">Sekretariat</option>
           <option value="FINANCE">Finance</option>
         </select>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="flex gap-2 lg:col-span-2">
           <input
             className="input"
             type="date"
@@ -149,85 +168,74 @@ export default function ApprovalRequestsPage() {
         </div>
       </div>
 
-      <div className="panel rounded-2xl p-4">
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Nomor</th>
-                <th>Pemohon</th>
-                <th>Judul</th>
-                <th>Jenis</th>
-                <th>Jalur</th>
-                <th>Status</th>
-                <th>Nominal</th>
-                <th>Tanggal</th>
+      <p className="text-sm text-sli-muted">{total} pengajuan</p>
+
+      <div className="panel overflow-x-auto rounded-2xl">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-sli-line bg-sli-cream/60 text-xs uppercase tracking-[0.08em] text-sli-muted">
+            <tr>
+              <th className="px-4 py-3">Nomor</th>
+              <th className="px-4 py-3">Pemohon</th>
+              <th className="px-4 py-3">Judul</th>
+              <th className="px-4 py-3">Jalur</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 text-right">Nominal</th>
+              <th className="px-4 py-3">Tanggal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-b border-sli-line/80 hover:bg-sli-cream/40">
+                <td className="px-4 py-3">
+                  <Link href={`/approval/requests/${row.id}`} className="font-semibold text-sli-red">
+                    {row.number}
+                  </Link>
+                  <p className="text-xs text-sli-muted">{typeLabel(row.type)}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <p className="font-medium">{row.requester.name}</p>
+                  <p className="text-xs text-sli-muted">{row.requester.nip}</p>
+                </td>
+                <td className="max-w-[220px] truncate px-4 py-3">{row.title}</td>
+                <td className="px-4 py-3">{trackLabel(row.track)}</td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={row.status} label={row.statusLabel} />
+                </td>
+                <td className="px-4 py-3 text-right font-semibold">{formatRupiah(row.totalAmount)}</td>
+                <td className="px-4 py-3">{formatDate(row.submittedAt || row.createdAt)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <div className="flex flex-col gap-1">
-                      <Link href={`/approval/requests/${row.id}`} className="font-semibold text-sli-red">
-                        {row.number}
-                      </Link>
-                      <Link
-                        href={`/dokumen/${row.id}`}
-                        target="_blank"
-                        className="text-xs font-semibold text-sli-muted hover:text-sli-red"
-                      >
-                        Preview dokumen ↗
-                      </Link>
-                    </div>
-                  </td>
-                  <td>
-                    <p className="font-semibold">{row.requester.name}</p>
-                    <p className="text-xs text-sli-muted">{row.requester.nip}</p>
-                  </td>
-                  <td>{row.title}</td>
-                  <td>{typeLabel(row.type)}</td>
-                  <td>{trackLabel(row.track)}</td>
-                  <td>
-                    <StatusBadge status={row.status} label={row.statusLabel} />
-                  </td>
-                  <td>{formatRupiah(row.totalAmount)}</td>
-                  <td>{formatDate(row.createdAt)}</td>
-                </tr>
-              ))}
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="text-sli-muted">
-                    Tidak ada data pada filter ini.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-4 flex items-center justify-between text-sm text-sli-muted">
-          <span>
-            {total} pengajuan · halaman {page}/{totalPages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn-ghost rounded-xl px-3 py-1.5 font-semibold disabled:opacity-40"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Sebelumnya
-            </button>
-            <button
-              type="button"
-              className="btn-ghost rounded-xl px-3 py-1.5 font-semibold disabled:opacity-40"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Berikutnya
-            </button>
-          </div>
-        </div>
+            ))}
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-sli-muted">
+                  Tidak ada data.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          className="btn-ghost rounded-xl px-3 py-2 text-sm font-semibold"
+          disabled={page <= 1}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+        >
+          Sebelumnya
+        </button>
+        <p className="text-sm text-sli-muted">
+          Halaman {page} / {totalPages}
+        </p>
+        <button
+          type="button"
+          className="btn-ghost rounded-xl px-3 py-2 text-sm font-semibold"
+          disabled={page >= totalPages}
+          onClick={() => setPage((p) => p + 1)}
+        >
+          Berikutnya
+        </button>
       </div>
     </div>
   );
