@@ -37,7 +37,7 @@ Target production: Ubuntu 24.04 pada VPS `185.250.38.226`, direktori `/var/www/f
 
 Pengguna memilih menjalankan perintah di VPS sendiri. Akses SSH otomatis dari mesin pengembang ke `root@185.250.38.226` belum tersedia. Perintah audit pertama hanya membaca status Git, nama variabel `.env`, proses, dan lokasi upload. Jangan mengirim isi `.env` atau kredensial melalui chat.
 
-`.env` lama dapat dipertahankan: nama variabel inti API pada versi baru sama dengan versi sebelumnya. Pertahankan nilai `DATABASE_URL`, `JWT_SECRET`, dan konfigurasi R2 yang benar; pastikan `NODE_ENV=production`. Variabel `AI_*` dan `SMTP_*` bersifat opsional. Jangan menyalin `.env.example` di atas `.env` production.
+`.env` lama dapat dipertahankan: nama variabel inti API pada versi baru sama dengan versi sebelumnya. Pertahankan `DATABASE_URL` dan konfigurasi R2 yang benar; pastikan `NODE_ENV=production`. `JWT_SECRET` wajib berupa nilai acak sendiri minimal 32 karakter: nilai contoh di `.env.example` ditolak oleh API production. Menggantinya membuat sesi login lama perlu masuk ulang, tetapi tidak mengubah data transaksi. Variabel `AI_*` dan `SMTP_*` bersifat opsional. Jangan menyalin `.env.example` di atas `.env` production dan jangan menampilkan isinya dalam tiket atau chat.
 
 Jalankan dua proses Node.js dan satu database MySQL yang persisten:
 

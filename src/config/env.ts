@@ -52,6 +52,14 @@ if (!parsed.success) {
   process.exit(1);
 }
 
+if (
+  parsed.data.NODE_ENV === "production" &&
+  (parsed.data.JWT_SECRET.length < 32 || parsed.data.JWT_SECRET.startsWith("ubah-ini-"))
+) {
+  console.error("JWT_SECRET production harus berupa nilai acak sendiri dengan panjang minimal 32 karakter.");
+  process.exit(1);
+}
+
 export const env = parsed.data;
 
 export function isR2Configured(): boolean {
