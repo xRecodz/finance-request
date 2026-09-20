@@ -52,7 +52,6 @@ body {
     radial-gradient(circle at 12% 18%, rgba(176, 16, 32, 0.08), transparent 34%),
     radial-gradient(circle at 88% 12%, rgba(176, 16, 32, 0.06), transparent 28%),
     url("data:image/svg+xml,%3Csvg width='120' height='120' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23b01020' stroke-opacity='0.07' stroke-width='1.2'%3E%3Cpath d='M60 10c8 14 22 22 36 22-14 8-22 22-22 36-8-14-22-22-36-22 14-8 22-22 22-36z'/%3E%3Ccircle cx='20' cy='20' r='5'/%3E%3Ccircle cx='100' cy='100' r='5'/%3E%3Cpath d='M10 70c10-4 16-12 18-22M110 50c-10 4-16 12-18 22'/%3E%3C/g%3E%3C/svg%3E");
-  background-attachment: fixed;
 }
 
 /* Landing pre-login: merah–putih kaya motif + animasi */
@@ -100,9 +99,8 @@ body {
 }
 
 .panel {
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--sli-line);
-  backdrop-filter: blur(8px);
 }
 
 .btn-primary {

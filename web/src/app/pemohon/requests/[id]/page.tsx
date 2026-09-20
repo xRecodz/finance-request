@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DocumentPreviewPanel } from "@/components/DocumentPreviewPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
@@ -14,18 +14,18 @@ export default function PemohonRequestDetailPage() {
   const [data, setData] = useState<RequestRow | null>(null);
   const [error, setError] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const res = await api<{ data: RequestRow }>(`/api/requests/${params.id}`);
       setData(res.data);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Gagal memuat");
     }
-  }
+  }, [params.id]);
 
   useEffect(() => {
     void load();
-  }, [params.id]);
+  }, [load]);
 
   if (error) return <div className="rounded-xl bg-sli-red-soft p-4 text-sli-red">{error}</div>;
   if (!data) return <div className="text-sli-muted">Memuat pengajuan...</div>;

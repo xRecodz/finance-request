@@ -1,0 +1,36 @@
+name: Check finance app
+
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/finance_ci
+      JWT_SECRET: ci-only-secret-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install API dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Test and build API
+        run: |
+          npm test
+          npm run build
+      - name: Install website dependencies
+        run: npm --prefix web ci
+      - name: Check and build website
+        run: |
+          npm --prefix web run lint
+          npm --prefix web run build

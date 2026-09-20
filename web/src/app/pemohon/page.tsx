@@ -1,21 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { api } from "@/lib/api";
 import { formatRupiah } from "@/lib/format";
 import type { DashboardSummary, RequestRow } from "@/lib/types";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
+
+const MonthlyRequestChart = dynamic(
+  () => import("@/components/DashboardCharts").then((module) => module.MonthlyRequestChart),
+  { ssr: false }
+);
 
 export default function PemohonDashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -54,6 +51,7 @@ export default function PemohonDashboard() {
         <StatCard
           label="Nominal Cair"
           value={summary ? formatRupiah(summary.cards.disbursedNominal) : "—"}
+          hint="Dari transaksi pencairan yang tercatat"
         />
       </div>
 
@@ -61,15 +59,7 @@ export default function PemohonDashboard() {
         <div className="panel rise-in rise-in-delay-1 rounded-2xl p-5 lg:col-span-3">
           <h2 className="font-semibold">Tren Pengajuan (bulanan)</h2>
           <div className="mt-4 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={summary?.monthlyChart || []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e8d5d8" />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v) => formatRupiah(Number(v))} />
-                <Bar dataKey="totalAmount" fill="#b01020" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {summary ? <MonthlyRequestChart data={summary.monthlyChart} /> : null}
           </div>
         </div>
 

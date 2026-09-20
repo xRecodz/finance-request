@@ -13,7 +13,7 @@ import { prisma } from "../lib/prisma";
 import { requestDetailInclude, serializeRequestDetail } from "../lib/requestView";
 import { toNumber } from "../lib/serialize";
 import { buildObjectKey, getBucketForKind, uploadToR2 } from "../lib/storage";
-import { AuthedRequest, requireAuth, requirePasswordChanged, requireRoles } from "../middleware/auth";
+import { AuthedRequest, requireAuth, requirePasswordChanged } from "../middleware/auth";
 import { HttpError, asyncHandler } from "../middleware/errorHandler";
 import { upload } from "../middleware/upload";
 
@@ -21,11 +21,15 @@ export const approvalsRouter = Router();
 
 approvalsRouter.use(
   requireAuth,
-  requirePasswordChanged,
-  requireRoles(UserRole.APPROVER, UserRole.MANAGER, UserRole.ADMIN)
+  requirePasswordChanged
 );
 
 type LoadedRequest = Prisma.RequestGetPayload<{ include: typeof requestDetailInclude }>;
+
+async function claimPendingDecision(tx: Prisma.TransactionClient, request: LoadedRequest, nextStatus: RequestStatus) {
+  const claimed = await tx.request.updateMany({ where: { id: request.id, status: request.status }, data: { status: nextStatus } });
+  if (claimed.count !== 1) throw new HttpError(409, "Pengajuan sudah diproses. Muat ulang halaman.");
+}
 
 function canActAsManager(user: AuthedRequest["user"], request: LoadedRequest) {
   if (user!.role === UserRole.ADMIN) return true;
@@ -49,15 +53,9 @@ async function findAssignedRequest(id: string, user: AuthedRequest["user"]) {
 
   if (user!.role === UserRole.ADMIN) return request;
 
-  // Manager assigned (role MANAGER, atau APPROVER dual-role seperti Sekretariat+GA).
+  // Penugasan pada pengajuan menentukan hak bertindak, bukan satu kolom role.
   if (request.managerId === user!.id) return request;
-
-  if (user!.role === UserRole.MANAGER) {
-    throw new HttpError(403, "Pengajuan ini bukan ditujukan kepada Anda");
-  }
-
-  // APPROVER (Finance / Sekretariat)
-  if (request.approverId !== user!.id) {
+  if (request.approverId !== user!.id && request.disbursementOfficerId !== user!.id) {
     throw new HttpError(403, "Pengajuan ini bukan ditujukan kepada Anda");
   }
   return request;
@@ -79,34 +77,43 @@ approvalsRouter.post(
         throw new HttpError(403, "Pengajuan masih menunggu keputusan manager");
       }
 
-      const updated = await prisma.request.update({
+      const requested = toNumber(request.totalAmount);
+      const approvedAmount = body.approvedAmount ?? requested;
+      if (approvedAmount > requested) throw new HttpError(400, "Nominal disetujui melebihi pengajuan");
+      const nextStatus = request.workflowVersion >= 2 ? RequestStatus.DISETUJUI : RequestStatus.MENUNGGU_APPROVAL;
+      const updated = await prisma.$transaction(async tx => {
+        await claimPendingDecision(tx, request, nextStatus);
+        return tx.request.update({
         where: { id: request.id },
         data: {
-          status: RequestStatus.MENUNGGU_APPROVAL,
+          status: nextStatus,
+          approvedAmount: request.workflowVersion >= 2 ? new Prisma.Decimal(approvedAmount) : undefined,
+          decidedAt: request.workflowVersion >= 2 ? new Date() : undefined,
           decisionNote: body.note || null,
           logs: {
             create: {
               actorId: req.user!.id,
               action: "MANAGER_APPROVE",
               fromStatus: request.status,
-              toStatus: RequestStatus.MENUNGGU_APPROVAL,
-              note: body.note || "Disetujui manager — diteruskan ke Finance",
+              toStatus: nextStatus,
+              note: body.note || "Disetujui manager — diteruskan ke pencairan",
             },
           },
         },
         include: requestDetailInclude,
+        });
       });
 
       notify({
-        userId: updated.approverId,
-        title: "Pengajuan lolos manager — menunggu Finance",
-        body: `${updated.number} dari ${updated.requester.name} sudah disetujui manager. Silakan review.`,
+        userId: updated.disbursementOfficerId ?? updated.approverId,
+        title: request.workflowVersion >= 2 ? "Pengajuan siap dicairkan" : "Pengajuan menunggu approval",
+        body: `${updated.number} dari ${updated.requester.name} sudah disetujui manager.`,
         requestId: updated.id,
       });
       notify({
         userId: updated.requesterId,
         title: "Pengajuan disetujui manager",
-        body: `${updated.number} disetujui manager. Menunggu approval Finance.`,
+        body: `${updated.number} disetujui manager. Menunggu pencairan.`,
         requestId: updated.id,
       });
 
@@ -136,7 +143,9 @@ approvalsRouter.post(
       throw new HttpError(400, "Nominal disetujui tidak boleh melebihi nominal pengajuan");
     }
 
-    const updated = await prisma.request.update({
+    const updated = await prisma.$transaction(async tx => {
+      await claimPendingDecision(tx, request, RequestStatus.DISETUJUI);
+      return tx.request.update({
       where: { id: request.id },
       data: {
         status: RequestStatus.DISETUJUI,
@@ -158,6 +167,7 @@ approvalsRouter.post(
         },
       },
       include: requestDetailInclude,
+      });
     });
 
     notify({
@@ -203,7 +213,9 @@ approvalsRouter.post(
       throw new HttpError(403, "Manager tidak dapat menolak di tahap Finance");
     }
 
-    const updated = await prisma.request.update({
+    const updated = await prisma.$transaction(async tx => {
+      await claimPendingDecision(tx, request, RequestStatus.DITOLAK);
+      return tx.request.update({
       where: { id: request.id },
       data: {
         status: RequestStatus.DITOLAK,
@@ -220,6 +232,7 @@ approvalsRouter.post(
         },
       },
       include: requestDetailInclude,
+      });
     });
 
     notify({
@@ -261,7 +274,9 @@ approvalsRouter.post(
       throw new HttpError(403, "Manager tidak dapat minta revisi di tahap Finance");
     }
 
-    const updated = await prisma.request.update({
+    const updated = await prisma.$transaction(async tx => {
+      await claimPendingDecision(tx, request, RequestStatus.REVISI);
+      return tx.request.update({
       where: { id: request.id },
       data: {
         status: RequestStatus.REVISI,
@@ -277,6 +292,7 @@ approvalsRouter.post(
         },
       },
       include: requestDetailInclude,
+      });
     });
 
     notify({
@@ -291,6 +307,7 @@ approvalsRouter.post(
 );
 
 const disburseSchema = z.object({
+  amount: z.coerce.number().positive().optional(),
   disbursementRef: z.string().trim().optional().nullable(),
   disbursedAt: z.coerce.date().optional(),
   note: z.string().trim().optional().nullable(),
@@ -300,16 +317,23 @@ approvalsRouter.post(
   "/:id/disburse",
   upload.single("proof"),
   asyncHandler<AuthedRequest>(async (req, res) => {
-    if (req.user!.role === UserRole.MANAGER) {
-      throw new HttpError(403, "Manager tidak dapat mencairkan dana");
-    }
-
     const body = disburseSchema.parse(req.body);
     const request = await findAssignedRequest(req.params.id, req.user);
+
+    if (request.workflowVersion >= 2) {
+      if (req.user!.role !== UserRole.ADMIN && request.disbursementOfficerId !== req.user!.id) {
+        throw new HttpError(403, "Hanya petugas pencairan yang ditugaskan dapat mencairkan");
+      }
+    } else if (req.user!.role === UserRole.MANAGER || !canActAsApprover(req.user, request)) {
+      throw new HttpError(403, "Anda tidak ditugaskan untuk mencairkan pengajuan ini");
+    }
 
     if (request.status !== RequestStatus.DISETUJUI) {
       throw new HttpError(409, "Dana hanya bisa dicairkan untuk pengajuan yang sudah disetujui");
     }
+    const amount = body.amount ?? toNumber(request.approvedAmount ?? request.totalAmount);
+    const maximum = toNumber(request.approvedAmount ?? request.totalAmount);
+    if (amount !== maximum) throw new HttpError(400, "Nominal pencairan harus sama dengan nominal yang disetujui. Pencairan bertahap belum tersedia.");
 
     const disbursedAt = body.disbursedAt ?? new Date();
     const lpjDueDate = new Date(disbursedAt);
@@ -338,7 +362,17 @@ approvalsRouter.post(
       });
     }
 
-    const updated = await prisma.request.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.request.updateMany({
+        where: { id: request.id, status: RequestStatus.DISETUJUI },
+        data: { status: RequestStatus.DICAIRKAN },
+      });
+      if (claimed.count !== 1) throw new HttpError(409, "Pengajuan sudah diproses sebelumnya");
+      await tx.disbursement.create({
+        data: { requestId: request.id, officerId: req.user!.id, amount: new Prisma.Decimal(amount),
+          reference: body.disbursementRef || null, disbursedAt, status: "VALID" },
+      });
+      return tx.request.update({
       where: { id: request.id },
       data: {
         status: RequestStatus.DICAIRKAN,
@@ -357,6 +391,7 @@ approvalsRouter.post(
         },
       },
       include: requestDetailInclude,
+    });
     });
 
     notify({

@@ -10,6 +10,12 @@ export type AuthUser = {
   role: UserRole;
   approverTrack: ApproverTrack | null;
   mustChangePassword: boolean;
+  onboardingComplete: boolean;
+  businessRole: string | null;
+  workLocation: string | null;
+  homeOutletId: string | null;
+  canApprove: boolean;
+  canDisburse: boolean;
 };
 
 export async function hashPassword(plain: string): Promise<string> {

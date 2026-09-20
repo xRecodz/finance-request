@@ -1,14 +1,16 @@
 import { Router } from "express";
-import { UserRole } from "@prisma/client";
+import { CategoryKind, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { env } from "../config/env";
 import {
-  AuthUser,
   hashPassword,
   signToken,
   validatePasswordStrength,
   verifyPassword,
 } from "../lib/auth";
+import { loadAuthUser } from "../lib/authUser";
+import { BUSINESS_ROLES } from "../lib/managerMap";
+import { resolveManagerForBusinessRole } from "../lib/manager";
 import { prisma } from "../lib/prisma";
 import { logActivity } from "../lib/activity";
 import { AuthedRequest, requireAuth } from "../middleware/auth";
@@ -22,24 +24,6 @@ const loginSchema = z.object({
   /** Pintu masuk yang dipilih user di halaman depan. */
   portal: z.enum(["PEMOHON", "APPROVAL", "IT"]).optional(),
 });
-
-function toAuthUser(user: {
-  id: string;
-  nip: string;
-  name: string;
-  role: UserRole;
-  approverTrack: AuthUser["approverTrack"];
-  mustChangePassword: boolean;
-}): AuthUser {
-  return {
-    id: user.id,
-    nip: user.nip,
-    name: user.name,
-    role: user.role,
-    approverTrack: user.approverTrack,
-    mustChangePassword: user.mustChangePassword,
-  };
-}
 
 authRouter.post(
   "/login",
@@ -56,7 +40,9 @@ authRouter.post(
     }
 
     // APPROVER / MANAGER / ADMIN boleh masuk portal Pemohon juga (untuk mengajukan dana).
-    if (portal === "APPROVAL" && user.role === UserRole.PEMOHON) {
+    const authUser = await loadAuthUser(user.id);
+    if (!authUser) throw new HttpError(403, "Akun Anda nonaktif");
+    if (portal === "APPROVAL" && !authUser.canApprove && !authUser.canDisburse) {
       throw new HttpError(
         403,
         "Akun ini terdaftar sebagai Pemohon. Silakan masuk lewat pintu Pemohon."
@@ -65,16 +51,7 @@ authRouter.post(
     if (portal === "IT" && user.role !== UserRole.IT && user.role !== UserRole.ADMIN) {
       throw new HttpError(403, "Akun ini tidak memiliki akses portal IT.");
     }
-    if (
-      (portal === "PEMOHON" || portal === "APPROVAL") &&
-      user.role === UserRole.IT
-    ) {
-      throw new HttpError(
-        403,
-        "Akun IT silakan masuk lewat pintu Portal IT."
-      );
-    }
-    // APPROVER / ADMIN boleh masuk portal Pemohon juga (untuk mengajukan dana).
+    // Semua akun aktif dapat membuat pengajuan melalui portal Pemohon.
 
     await prisma.user.update({
       where: { id: user.id },
@@ -89,7 +66,6 @@ authRouter.post(
       ip: req.ip,
     });
 
-    const authUser = toAuthUser(user);
     res.json({
       token: signToken(authUser),
       user: {
@@ -127,7 +103,7 @@ authRouter.get(
     if (!user || !user.isActive) {
       throw new HttpError(401, "Akun tidak ditemukan atau nonaktif");
     }
-    res.json({ user });
+    res.json({ user: { ...user, ...(await loadAuthUser(user.id)) } });
   })
 );
 
@@ -183,12 +159,54 @@ authRouter.post(
     });
 
     // Token lama masih membawa mustChangePassword=true, jadi terbitkan yang baru.
-    const authUser = toAuthUser(updated);
+    const authUser = await loadAuthUser(updated.id);
+    if (!authUser) throw new HttpError(401, "Akun tidak aktif");
     res.json({
       message: "Password berhasil diperbarui",
       token: signToken(authUser),
       user: authUser,
     });
+  })
+);
+
+const setupProfileSchema = z.object({
+  businessRole: z.enum(BUSINESS_ROLES),
+  workLocation: z.enum(["HO", "OUTLET"]),
+  homeOutletId: z.string().optional().nullable(),
+});
+
+authRouter.post(
+  "/setup-profile",
+  requireAuth,
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    if (req.user!.mustChangePassword) throw new HttpError(403, "Ganti password terlebih dahulu");
+    const body = setupProfileSchema.parse(req.body);
+    if (body.workLocation === "OUTLET") {
+      if (!body.homeOutletId) throw new HttpError(400, "Pilih outlet asal");
+      const outlet = await prisma.category.findUnique({ where: { id: body.homeOutletId } });
+      if (!outlet || !outlet.isActive || outlet.kind !== CategoryKind.OUTLET) {
+        throw new HttpError(400, "Outlet asal tidak valid");
+      }
+    }
+    const updated = await prisma.user.update({
+      where: { id: req.user!.id },
+      data: {
+        businessRole: body.businessRole,
+        workLocation: body.workLocation,
+        homeOutletId: body.workLocation === "OUTLET" ? body.homeOutletId : null,
+        onboardingComplete: true,
+      },
+    });
+    let manager: { id: string; name: string; nip: string } | null = null;
+    try {
+      const found = await resolveManagerForBusinessRole(updated.businessRole, updated.homeOutletId, updated.id);
+      manager = { id: found.id, name: found.name, nip: found.nip };
+    } catch { /* Penempatan boleh selesai walau rute manager belum diatur. */ }
+    logActivity({ actorId: updated.id, action: "SETUP_PROFILE", entity: "User", entityId: updated.id,
+      detail: `${updated.businessRole}/${updated.workLocation}`, ip: req.ip });
+    const authUser = await loadAuthUser(updated.id);
+    if (!authUser) throw new HttpError(401, "Akun tidak aktif");
+    res.json({ user: authUser, token: signToken(authUser), manager });
   })
 );
 

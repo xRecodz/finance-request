@@ -39,6 +39,10 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
   APP_PUBLIC_URL: z.string().optional(),
+  AI_PROVIDER: z.enum(["gemini", "9router"]).optional(),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
+  AI_API_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -20,6 +20,7 @@ type AuthState = {
     newPassword: string,
     confirmPassword: string
   ) => Promise<void>;
+  setupProfile: (businessRole: string, workLocation: "HO" | "OUTLET", homeOutletId?: string | null) => Promise<AuthUser>;
   logout: () => void;
   refresh: () => Promise<void>;
 };
@@ -78,14 +79,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const setupProfile = useCallback(async (businessRole: string, workLocation: "HO" | "OUTLET", homeOutletId?: string | null) => {
+    const res = await api<{ token: string; user: AuthUser }>("/api/auth/setup-profile", {
+      method: "POST", body: JSON.stringify({ businessRole, workLocation, homeOutletId }),
+    });
+    setToken(res.token);
+    setUser(res.user);
+    return res.user;
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, changePassword, logout, refresh }),
-    [user, loading, login, changePassword, logout, refresh]
+    () => ({ user, loading, login, changePassword, setupProfile, logout, refresh }),
+    [user, loading, login, changePassword, setupProfile, logout, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { ApproverTrack, Prisma, UserRole, UserSource } from "@prisma/client";
+import { ApproverTrack, CategoryKind, Prisma, UserRole, UserSource } from "@prisma/client";
 import { z } from "zod";
-import { env } from "../config/env";
-import { hashPassword } from "../lib/auth";
+import { getDefaultPasswordHash } from "../lib/defaultPassword";
+import { BUSINESS_ROLES } from "../lib/managerMap";
 import { logActivity } from "../lib/activity";
 import { prisma } from "../lib/prisma";
 import {
@@ -29,6 +29,10 @@ const userSelect = {
   phone: true,
   position: true,
   department: true,
+  businessRole: true,
+  workLocation: true,
+  homeOutletId: true,
+  onboardingComplete: true,
   role: true,
   approverTrack: true,
   mustChangePassword: true,
@@ -59,6 +63,10 @@ const createSchema = z
     phone: z.string().trim().optional().nullable(),
     position: z.string().trim().optional().nullable(),
     department: z.string().trim().optional().nullable(),
+    businessRole: z.enum(BUSINESS_ROLES).optional().nullable(),
+    workLocation: z.enum(["HO", "OUTLET"]).optional().nullable(),
+    homeOutletId: z.string().optional().nullable(),
+    onboardingComplete: z.boolean().optional(),
     role: z.enum([UserRole.PEMOHON, UserRole.APPROVER, UserRole.MANAGER, UserRole.IT]).default(UserRole.PEMOHON),
     approverTrack: z.nativeEnum(ApproverTrack).optional().nullable(),
     isActive: z.boolean().default(true),
@@ -80,6 +88,10 @@ const patchSchema = z
     phone: z.string().trim().optional().nullable(),
     position: z.string().trim().optional().nullable(),
     department: z.string().trim().optional().nullable(),
+    businessRole: z.enum(BUSINESS_ROLES).optional().nullable(),
+    workLocation: z.enum(["HO", "OUTLET"]).optional().nullable(),
+    homeOutletId: z.string().optional().nullable(),
+    onboardingComplete: z.boolean().optional(),
     role: z.enum([UserRole.PEMOHON, UserRole.APPROVER, UserRole.MANAGER, UserRole.IT]).optional(),
     approverTrack: z.nativeEnum(ApproverTrack).optional().nullable(),
     isActive: z.boolean().optional(),
@@ -97,6 +109,16 @@ const patchSchema = z
 function normalizeEmail(email?: string | null) {
   if (!email || email.trim() === "") return null;
   return email.trim();
+}
+
+async function validateProfile(complete: boolean, businessRole: string | null | undefined, workLocation: string | null | undefined, homeOutletId: string | null | undefined) {
+  if (!complete) return;
+  if (!businessRole || !workLocation) throw new HttpError(400, "Profil lengkap membutuhkan divisi dan penempatan");
+  if (workLocation === "OUTLET") {
+    if (!homeOutletId) throw new HttpError(400, "Pilih outlet karyawan");
+    const outlet = await prisma.category.findUnique({ where: { id: homeOutletId } });
+    if (!outlet?.isActive || outlet.kind !== CategoryKind.OUTLET) throw new HttpError(400, "Outlet karyawan tidak valid");
+  }
 }
 
 function assertCanAssignRole(actorRole: UserRole, targetRole: UserRole) {
@@ -166,11 +188,12 @@ usersRouter.post(
   asyncHandler<AuthedRequest>(async (req, res) => {
     const body = createSchema.parse(req.body);
     assertCanAssignRole(req.user!.role, body.role);
+    await validateProfile(body.onboardingComplete ?? false, body.businessRole, body.workLocation, body.homeOutletId);
 
     const existing = await prisma.user.findUnique({ where: { nip: body.nip } });
     if (existing) throw new HttpError(409, "NIP sudah terdaftar");
 
-    const passwordHash = await hashPassword(env.DEFAULT_PASSWORD);
+    const passwordHash = await getDefaultPasswordHash();
     const created = await prisma.user.create({
       data: {
         nip: body.nip,
@@ -179,6 +202,10 @@ usersRouter.post(
         phone: body.phone || null,
         position: body.position || null,
         department: body.department || null,
+        businessRole: body.businessRole || null,
+        workLocation: body.workLocation || null,
+        homeOutletId: body.workLocation === "OUTLET" ? body.homeOutletId || null : null,
+        onboardingComplete: body.onboardingComplete ?? false,
         role: body.role,
         approverTrack: body.role === UserRole.APPROVER ? body.approverTrack! : null,
         passwordHash,
@@ -217,6 +244,10 @@ usersRouter.patch(
     }
 
     const nextRole = body.role ?? existing.role;
+    await validateProfile(body.onboardingComplete ?? existing.onboardingComplete,
+      body.businessRole === undefined ? existing.businessRole : body.businessRole,
+      body.workLocation === undefined ? existing.workLocation : body.workLocation,
+      body.workLocation === "HO" ? null : body.homeOutletId === undefined ? existing.homeOutletId : body.homeOutletId);
     if (body.role) assertCanAssignRole(req.user!.role, body.role);
 
     if (nextRole === UserRole.APPROVER) {
@@ -235,6 +266,10 @@ usersRouter.patch(
         phone: body.phone === undefined ? undefined : body.phone || null,
         position: body.position === undefined ? undefined : body.position || null,
         department: body.department === undefined ? undefined : body.department || null,
+        businessRole: body.businessRole === undefined ? undefined : body.businessRole || null,
+        workLocation: body.workLocation,
+        homeOutletId: body.workLocation === "HO" ? null : body.homeOutletId,
+        onboardingComplete: body.onboardingComplete,
         role: body.role,
         approverTrack:
           nextRole === UserRole.APPROVER
@@ -277,7 +312,7 @@ usersRouter.post(
       throw new HttpError(403, "Password akun ADMIN tidak bisa di-reset dari portal IT");
     }
 
-    const passwordHash = await hashPassword(env.DEFAULT_PASSWORD);
+    const passwordHash = await getDefaultPasswordHash();
     const updated = await prisma.user.update({
       where: { id: existing.id },
       data: {
