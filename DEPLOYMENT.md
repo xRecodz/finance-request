@@ -6,7 +6,7 @@
 - Repository tujuan adalah `https://github.com/xRecodz/finance-request` dengan branch utama `main`. Direktori `.git` pada salinan kerja ini kosong, sehingga kode harus disatukan melalui clone repository tersebut; jangan menjalankan force push dari folder ini.
 - `20sep26.sql` adalah dump berisi data karyawan dan transaksi, sehingga dikecualikan oleh `.gitignore`. `.env`, `web/.env.local`, dan `uploads/` juga tidak ikut Git. `prisma/migrations/**/*.sql` tetap boleh masuk Git.
 - Repository GitHub saat ini sudah melacak `prisma/data/hris-employees.json` berisi sekitar 11.900 data karyawan. Berkas itu bukan database MySQL yang hidup. Aturan `.gitignore` baru mencegah penambahan baru, tetapi tidak menghapus berkas yang sudah ada dalam riwayat Git. Tinjau akses repository dan penanganan data karyawan sebelum rilis.
-- Migrasi `prisma/migrations/20260920_financev2/migration.sql` adalah **perubahan dari skema database lama**. Berkas ini sendiri belum cukup untuk membuat seluruh tabel pada database kosong.
+- Migrasi `prisma/migrations/0_init/migration.sql` berisi skema versi lama untuk database kosong. Migrasi `20260920_financev2` menambahkan fitur baru di atasnya. Pada database yang sudah berisi data, tandai hanya `0_init` sebagai sudah diterapkan; jangan jalankan SQL `0_init` terhadap database tersebut.
 
 ## Menyatukan kode dengan GitHub
 
@@ -25,9 +25,9 @@ Sumber utama yang dipilih adalah **MySQL production yang sudah aktif**. Pertahan
 Jika kelak perlu memindahkan data ke server database baru, pilih **satu** sumber utama untuk data transaksi dan akun:
 
 1. **Ingin membawa data lama:** pulihkan backup MySQL terbaru dari tempat penyimpanan privat. `20sep26.sql` hanya layak dipakai jika memang itulah snapshot yang dipilih dan tidak ada data lebih baru. Setelah dipulihkan, terapkan perubahan skema yang sesuai.
-2. **Mulai dari nol:** siapkan migrasi awal penuh dari `prisma/schema.prisma` dan data awal yang diperlukan. Migrasi `20260920_financev2` saat ini hanya berisi perubahan dari skema lama, jadi jangan jalankan sendirian pada database kosong.
+2. **Mulai dari nol:** dua migrasi yang sudah ada dapat membuat skema baru secara berurutan, tetapi data awal yang diperlukan harus disiapkan terpisah. Ini bukan alur untuk mengganti database production yang sudah berisi data.
 
-Untuk database yang berasal dari skema `20sep26.sql`, perubahan awal proyek ini diterapkan sekali melalui `npm run db:migrate:existing`, lalu `npm run db:backfill`. Kedua langkah tersebut harus dikerjakan pada salinan staging dan dibandingkan dengan database tujuan sebelum production. Sesudah skema production cocok, catat baseline migrasi Prisma supaya deployment berikutnya dapat memakai `npx prisma migrate deploy`. Jangan menjalankan `prisma migrate reset` atau `prisma db push` pada database berisi data production.
+Untuk database yang berasal dari skema versi lama, pulihkan backup terbaru ke database staging. Di staging, jalankan `npx prisma migrate resolve --applied 0_init`, kemudian `npx prisma migrate deploy` dan `npm run db:backfill`. Periksa jumlah data dan alur utama. Ulangi pada production hanya setelah hasil staging sesuai. `migrate resolve` mencatat migrasi awal tanpa menjalankan SQL-nya; `migrate deploy` menerapkan perubahan baru. Jangan menjalankan `prisma migrate reset` atau `prisma db push` pada database berisi data production.
 
 Panduan resmi: [baselining database yang sudah ada](https://www.prisma.io/docs/orm/prisma-migrate/workflows/baselining) dan [migrasi production](https://docs.prisma.io/docs/orm/prisma-client/deployment/deploy-database-changes-with-prisma-migrate).
 
@@ -54,6 +54,6 @@ Panduan resmi: [self-hosting Next.js](https://nextjs.org/docs/app/guides/self-ho
 
 1. Inventarisasi service, direktori aplikasi, konfigurasi Nginx, lokasi upload, dan koneksi MySQL yang sedang dipakai. Catat commit yang sedang berjalan dan siapkan cara kembali ke rilis itu jika pemeriksaan gagal.
 2. Setelah pull request masuk `main`, ambil commit baru pada direktori aplikasi di VPS. Simpan environment production di server, di luar Git. Gunakan kredensial MySQL production yang sudah ada, `NODE_ENV=production`, dan `JWT_SECRET` yang tetap sama agar sesi yang masih berlaku tidak terputus.
-3. Ambil backup MySQL terbaru, pulihkan ke database staging, lalu uji migrasi `20260920_financev2` serta backfill pada staging. Cocokkan skema production dengan staging sebelum menerapkan perubahan. Jika migration SQL sudah diterapkan manual, tandai sebagai applied dengan `npx prisma migrate resolve --applied 20260920_financev2`; jangan menjalankan SQL yang sama dua kali. Setelah baseline tercatat, gunakan `npx prisma migrate deploy` untuk migrasi berikutnya.
+3. Ambil backup MySQL terbaru, pulihkan ke database staging, tandai migrasi skema lama dengan `npx prisma migrate resolve --applied 0_init`, lalu uji `npx prisma migrate deploy` serta backfill pada staging. Cocokkan jumlah data dan skema production dengan staging sebelum menerapkan langkah yang sama pada production. Jangan menjalankan migrasi yang sama dua kali secara manual.
 4. Build API dan website. Atur proses permanen dengan systemd, lalu jalankan keduanya di localhost. Nginx meneruskan trafik publik ke kedua proses. Uji `/api/health`, login, pengajuan draft dan submit, approval, pencairan, serta lampiran.
 5. Untuk rilis berikutnya: backup database, `git pull` dari `main` atau deploy commit/tag yang disetujui, `npm ci` untuk kedua aplikasi, `npx prisma migrate deploy`, build, restart service, lalu smoke test. Jangan menjalankan seed atau reset password admin pada database production yang sudah dipakai.
