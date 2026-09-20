@@ -12,7 +12,7 @@
 
 Repository tujuan **sudah berisi kode versi lama**. Clone repository itu ke folder baru, buat branch kerja dari `main`, lalu bandingkan dan pindahkan perubahan proyek ini ke clone tersebut. Pertahankan berkas milik repository lama yang belum ada di folder lokal sampai tujuan dan datanya dipastikan. Periksa perbedaan `package.json`, `prisma/schema.prisma`, migrasi, dan konfigurasi sebelum commit. Buka pull request ke `main` setelah build dan uji berjalan. Jangan force push atau menimpa isi repository yang sudah ada.
 
-Branch kerja yang sudah disiapkan secara lokal bernama `feature/financev2-production`. Setelah review dan izin push, jalankan `git push -u origin feature/financev2-production` dari clone kerja, lalu buka pull request `feature/financev2-production` → `main`. Workflow `.github/workflows/ci.yml` memeriksa test dan build pada pull request; workflow ini tidak mengubah VPS atau MySQL.
+Branch `feature/financev2-production` sudah didorong ke GitHub melalui pull request draft [#1](https://github.com/xRecodz/finance-request/pull/1). Workflow `.github/workflows/ci.yml` memeriksa test dan build pada pull request; pemeriksaan awalnya lulus. Workflow ini tidak mengubah VPS atau MySQL. Pull request belum digabungkan ke `main`.
 
 Saat menyalin kode ke branch kerja, kecualikan `.git`, `20sep26.sql`, `.env*`, `node_modules`, `dist`, `.next`, dan `uploads`. Commit kode, migrasi, `.env.example`, serta dokumentasi. Periksa daftar file yang akan di-commit dengan `git status --short` dan `git diff --cached --name-only` sebelum push.
 
@@ -33,7 +33,11 @@ Panduan resmi: [baselining database yang sudah ada](https://www.prisma.io/docs/o
 
 ## Menjalankan aplikasi production
 
-Target production: Ubuntu 24.04 pada VPS, domain `pengajuan.slcorp.or.id`, dan MySQL yang sudah berisi data. Pada 20 September 2026, domain sudah merespons lewat Nginx/Next.js dan `/api/health` melaporkan `env=production`. Jadi ini adalah pembaruan layanan yang sedang aktif. Lokasi dan akses MySQL perlu diverifikasi di VPS; gunakan database yang sekarang sebagai sumber utama.
+Target production: Ubuntu 24.04 pada VPS `185.250.38.226`, direktori `/var/www/finance`, domain `pengajuan.slcorp.or.id`, dan MySQL yang sudah berisi data. Pada 20 September 2026, domain sudah merespons lewat Nginx/Next.js dan `/api/health` melaporkan `env=production`. Jadi ini adalah pembaruan layanan yang sedang aktif. Lokasi dan akses MySQL perlu diverifikasi di VPS; gunakan database yang sekarang sebagai sumber utama.
+
+Pengguna memilih menjalankan perintah di VPS sendiri. Akses SSH otomatis dari mesin pengembang ke `root@185.250.38.226` belum tersedia. Perintah audit pertama hanya membaca status Git, nama variabel `.env`, proses, dan lokasi upload. Jangan mengirim isi `.env` atau kredensial melalui chat.
+
+`.env` lama dapat dipertahankan: nama variabel inti API pada versi baru sama dengan versi sebelumnya. Pertahankan nilai `DATABASE_URL`, `JWT_SECRET`, dan konfigurasi R2 yang benar; pastikan `NODE_ENV=production`. Variabel `AI_*` dan `SMTP_*` bersifat opsional. Jangan menyalin `.env.example` di atas `.env` production.
 
 Jalankan dua proses Node.js dan satu database MySQL yang persisten:
 
