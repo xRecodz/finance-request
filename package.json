@@ -12,6 +12,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
+    "db:migrate:existing": "prisma db execute --file prisma/migrations/20260920_financev2/migration.sql --schema prisma/schema.prisma",
+    "db:backfill": "tsx scripts/backfill-legacy-disbursements.ts",
+    "verify:workflow": "tsx scripts/verify-workflow.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "hris:extract": "tsx scripts/extract-hris-nip.ts",
@@ -62,5 +65,8 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }

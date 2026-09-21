@@ -39,12 +39,24 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
   APP_PUBLIC_URL: z.string().optional(),
+  AI_PROVIDER: z.enum(["gemini", "9router"]).optional(),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
+  AI_API_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
   console.error("Environment tidak valid:", parsed.error.flatten().fieldErrors);
+  process.exit(1);
+}
+
+if (
+  parsed.data.NODE_ENV === "production" &&
+  (parsed.data.JWT_SECRET.length < 32 || parsed.data.JWT_SECRET.startsWith("ubah-ini-"))
+) {
+  console.error("JWT_SECRET production harus berupa nilai acak sendiri dengan panjang minimal 32 karakter.");
   process.exit(1);
 }
 

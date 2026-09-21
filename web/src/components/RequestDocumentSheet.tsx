@@ -32,7 +32,8 @@ export function RequestDocumentSheet({ data }: { data: RequestRow }) {
         <Row label="Jenis" value={typeLabel(data.type)} />
         <Row label="Pemohon" value={`${data.requester.name} (${data.requester.nip})`} />
         <Row label="Jalur" value={trackLabel(data.track)} />
-        <Row label="Menyetujui" value={data.approver.name} />
+        <Row label="Manager penyetuju" value={data.manager?.name || data.approver.name} />
+        {data.workflowVersion && data.workflowVersion >= 2 ? <Row label="Petugas pencairan" value={data.disbursementOfficer?.name || data.approver.name} /> : null}
         <Row label="Tgl dibutuhkan" value={formatDate(data.neededDate)} />
         <Row label="Total diajukan" value={formatRupiah(data.totalAmount)} />
         {data.approvedAmount != null ? (
@@ -102,7 +103,7 @@ export function RequestDocumentSheet({ data }: { data: RequestRow }) {
         </section>
       )}
 
-      <section className="mt-5 grid grid-cols-2 gap-6 text-center text-[11px]">
+      <section className={`mt-5 grid ${data.workflowVersion && data.workflowVersion >= 2 ? "grid-cols-3" : "grid-cols-2"} gap-3 text-center text-[11px]`}>
         <div>
           <p className="text-neutral-600">Pemohon</p>
           <div className="mt-8 border-t border-neutral-400 pt-1 font-medium">
@@ -112,9 +113,10 @@ export function RequestDocumentSheet({ data }: { data: RequestRow }) {
         <div>
           <p className="text-neutral-600">Menyetujui</p>
           <div className="mt-8 border-t border-neutral-400 pt-1 font-medium">
-            {data.approver.name}
+            {data.manager?.name || data.approver.name}
           </div>
         </div>
+        {data.workflowVersion && data.workflowVersion >= 2 ? <div><p className="text-neutral-600">Petugas pencairan</p><div className="mt-8 border-t border-neutral-400 pt-1 font-medium">{data.disbursementOfficer?.name || data.approver.name}</div></div> : null}
       </section>
 
       <p className="mt-3 text-center text-[8px] text-neutral-400">

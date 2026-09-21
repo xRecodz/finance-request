@@ -8,6 +8,7 @@
  * Marketing sengaja dikosongkan — isi nanti.
  */
 export const MANAGER_NIPS = {
+  MARKETING: "1306.1.81.00690",
   /** Ega Hardianto — Finance */
   FINANCE: "1805.1.81.03499",
   /** Sari Kumala Dewi — GA + HRD (juga APPROVER Sekretariat) */
@@ -15,6 +16,21 @@ export const MANAGER_NIPS = {
   /** Muhammad Handoyo — IT + Accounting + Audit */
   IT_ACC_AUDIT: "1511.1.77.00020",
 } as const;
+
+export const BUSINESS_ROLE_MANAGER_NIPS: Record<string, string> = {
+  MARKETING: MANAGER_NIPS.MARKETING,
+  GA: MANAGER_NIPS.GA_HRD,
+  HRD: MANAGER_NIPS.GA_HRD,
+  IT: MANAGER_NIPS.IT_ACC_AUDIT,
+  ACCOUNTING: MANAGER_NIPS.IT_ACC_AUDIT,
+  AUDIT: MANAGER_NIPS.IT_ACC_AUDIT,
+  FINANCE: MANAGER_NIPS.FINANCE,
+  IC: MANAGER_NIPS.FINANCE,
+};
+
+export const BUSINESS_ROLES = [
+  "MARKETING", "GA", "HRD", "IT", "ACCOUNTING", "AUDIT", "FINANCE", "IC", "OPERASIONAL",
+] as const;
 
 /** Exact match pada User.department (case-sensitive setelah trim). */
 export const DEPARTMENT_MANAGER_MAP: Record<string, string> = {
@@ -40,7 +56,9 @@ export const DEPARTMENT_MANAGER_MAP: Record<string, string> = {
   SPI: MANAGER_NIPS.IT_ACC_AUDIT,
 
   // Marketing — isi nanti
-  // Marketing: "xxxx.x.xx.xxxxx",
+  Marketing: MANAGER_NIPS.MARKETING,
+  MARKETING: MANAGER_NIPS.MARKETING,
+  IC: MANAGER_NIPS.FINANCE,
 };
 
 /**
@@ -53,6 +71,11 @@ export const POSITION_MANAGER_RULES: Array<{
   includes: string[];
   label: string;
 }> = [
+  {
+    nip: MANAGER_NIPS.MARKETING,
+    includes: ["Marketing", "Promosi"],
+    label: "Marketing",
+  },
   {
     nip: MANAGER_NIPS.GA_HRD,
     includes: ["Legal, GA", "(GA, Lain)", "GA, Lain"],

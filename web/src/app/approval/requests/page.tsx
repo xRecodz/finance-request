@@ -10,11 +10,12 @@ import { formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
 const MANAGER_PENDING = "MENUNGGU_MANAGER";
-const APPROVER_PENDING = "MENUNGGU_MANAGER,MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU";
+const APPROVER_PENDING = "MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU";
 
 export default function ApprovalRequestsPage() {
   const { user } = useAuth();
-  const isManager = user?.role === "MANAGER";
+  const [view, setView] = useState<"manager" | "approver">("manager");
+  const isManager = view === "manager";
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState(APPROVER_PENDING);
@@ -29,12 +30,17 @@ export default function ApprovalRequestsPage() {
 
   useEffect(() => {
     if (!user) return;
-    setStatus(user.role === "MANAGER" ? MANAGER_PENDING : APPROVER_PENDING);
+    if (!user.canApprove && user.canDisburse) setView("approver");
+  }, [user]);
+
+  useEffect(() => {
+    setStatus(view === "manager" ? MANAGER_PENDING : APPROVER_PENDING);
     setPage(1);
-  }, [user?.role]);
+  }, [view]);
 
   useEffect(() => {
     const params = new URLSearchParams();
+    params.set("as", view);
     if (q) params.set("q", q);
     if (status) params.set("status", status);
     if (track) params.set("track", track);
@@ -50,13 +56,14 @@ export default function ApprovalRequestsPage() {
       setTotalPages(res.pagination.totalPages);
       setTotal(res.pagination.total);
     });
-  }, [q, status, track, from, to, page]);
+  }, [q, status, track, from, to, page, view]);
 
   async function onExport() {
     setError("");
     setExporting(true);
     try {
       const params = new URLSearchParams();
+      params.set("as", view);
       if (q) params.set("q", q);
       if (status) params.set("status", status);
       if (track) params.set("track", track);
@@ -90,6 +97,11 @@ export default function ApprovalRequestsPage() {
           {exporting ? "Mengunduh..." : "Ekspor CSV"}
         </button>
       </div>
+
+      {user?.canApprove && user?.canDisburse ? <div className="flex gap-2">
+        <button className={isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => setView("manager")}>Approval Manager</button>
+        <button className={!isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => setView("approver")}>Pencairan</button>
+      </div> : null}
 
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
 

@@ -9,7 +9,8 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { logActivity } from "../lib/activity";
-import { resolveManagerForDepartment } from "../lib/manager";
+import { resolveManagerForBusinessRole } from "../lib/manager";
+import { resolveDisbursementOfficer, validateDestinationCategory, type Destination } from "../lib/routing";
 import { formatRupiah, notify } from "../lib/notify";
 import { generateRequestNumber } from "../lib/numbering";
 import { prisma } from "../lib/prisma";
@@ -21,38 +22,50 @@ import {
 } from "../lib/requestView";
 import { roundMoney } from "../lib/serialize";
 import { buildObjectKey, getBucketForKind, uploadToR2 } from "../lib/storage";
-import { AuthedRequest, requireAuth, requirePasswordChanged } from "../middleware/auth";
+import { AuthedRequest, requireAuth, requirePasswordChanged, requireOnboardingComplete } from "../middleware/auth";
 import { HttpError, asyncHandler } from "../middleware/errorHandler";
 import { upload } from "../middleware/upload";
 
 export const requestsRouter = Router();
 
-requestsRouter.use(requireAuth, requirePasswordChanged);
+requestsRouter.use(requireAuth, requirePasswordChanged, requireOnboardingComplete);
 
 // ── Skema input ─────────────────────────────────────────────────────────────
 
 const itemSchema = z.object({
-  name: z.string().trim().min(1, "Nama item wajib diisi"),
+  name: z.string().trim(),
   spec: z.string().trim().optional().nullable(),
-  quantity: z.coerce.number().positive("Jumlah harus lebih dari 0"),
-  unit: z.string().trim().min(1).default("pcs"),
+  quantity: z.coerce.number().min(0, "Jumlah tidak boleh negatif"),
+  unit: z.string().trim().default("pcs"),
   unitPrice: z.coerce.number().min(0, "Harga tidak boleh negatif"),
   note: z.string().trim().optional().nullable(),
 });
 
-const requestBodySchema = z.object({
+export const requestBodySchema = z.object({
   type: z.nativeEnum(RequestType).default(RequestType.DANA),
   track: z.nativeEnum(ApproverTrack),
-  approverId: z.string().min(1, "Tujuan approval wajib dipilih"),
+  destination: z.enum(["HO", "OUTLET"]).optional(),
+  approverId: z.string().optional(),
   categoryId: z.string().optional().nullable(),
-  title: z.string().trim().min(3, "Judul minimal 3 karakter"),
-  purpose: z.string().trim().min(5, "Keperluan wajib dijelaskan"),
+  title: z.string().trim(),
+  purpose: z.string().trim(),
   neededDate: z.coerce.date().optional().nullable(),
   bankName: z.string().trim().optional().nullable(),
   bankAccountNumber: z.string().trim().optional().nullable(),
   bankAccountHolder: z.string().trim().optional().nullable(),
-  items: z.array(itemSchema).min(1, "Minimal satu item pengajuan"),
+  items: z.array(itemSchema),
   submit: z.boolean().default(false),
+}).superRefine((body, ctx) => {
+  if (!body.submit) return;
+  if (body.title.length < 3) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["title"], message: "Judul minimal 3 karakter" });
+  if (body.purpose.length < 5) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["purpose"], message: "Keperluan minimal 5 karakter" });
+  if (!body.categoryId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["categoryId"], message: "Kategori tujuan wajib dipilih" });
+  if (body.items.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items"], message: "Minimal satu item pengajuan" });
+  body.items.forEach((item, index) => {
+    if (!item.name) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "name"], message: `Nama item ${index + 1} wajib diisi` });
+    if (item.quantity <= 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "quantity"], message: `Jumlah item ${index + 1} harus lebih dari 0` });
+    if (!item.unit) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index, "unit"], message: `Satuan item ${index + 1} wajib diisi` });
+  });
 });
 
 const listQuerySchema = z.object({
@@ -93,54 +106,32 @@ function computeItems(items: z.infer<typeof itemSchema>[]) {
   return { prepared, total };
 }
 
-/**
- * Approver yang dipilih harus memang approver aktif dan jalurnya cocok
- * dengan pilihan "kepada siapa" di form.
- */
-async function assertApproverValid(
-  approverId: string,
-  track: ApproverTrack,
-  _actorId: string
-) {
-  // Boleh mengajukan kepada diri sendiri (mis. Sekretariat mengajukan lalu approve sendiri).
-  const approver = await prisma.user.findUnique({ where: { id: approverId } });
-  if (!approver || !approver.isActive || approver.role !== UserRole.APPROVER) {
-    throw new HttpError(400, "Tujuan approval tidak valid");
+async function destinationFor(categoryId: string | null | undefined, preferred?: Destination, required = true): Promise<Destination> {
+  if (!categoryId) {
+    if (required) throw new HttpError(400, "Kategori tujuan wajib dipilih");
+    return preferred ?? "HO";
   }
-  if (approver.approverTrack !== track) {
-    throw new HttpError(400, "Approver yang dipilih tidak sesuai dengan jalur pengajuan");
-  }
-  return approver;
+  const category = await prisma.category.findUnique({ where: { id: categoryId } });
+  const destination: Destination = preferred ?? (category?.kind === "OUTLET" ? "OUTLET" : "HO");
+  await validateDestinationCategory(destination, categoryId);
+  return destination;
 }
 
-/** Finance → manager dulu; Sekretariat → langsung approval. */
+/** Seluruh pengajuan baru: manager divisi dahulu, petugas pencairan kemudian. */
 async function resolveSubmitAssignment(params: {
   track: ApproverTrack;
-  approverId: string;
+  destination: Destination;
   requesterId: string;
 }) {
-  await assertApproverValid(params.approverId, params.track, params.requesterId);
-
-  if (params.track === ApproverTrack.DIREKTUR) {
-    return {
-      managerId: null as string | null,
-      status: RequestStatus.MENUNGGU_APPROVAL,
-      notifyUserId: params.approverId,
-      submitNote: "Pengajuan dikirim ke Sekretariat",
-      notifyTitle: "Pengajuan baru menunggu approval",
-    };
-  }
-
   const requester = await prisma.user.findUnique({
     where: { id: params.requesterId },
-    select: { department: true, position: true, name: true },
+    select: { businessRole: true, homeOutletId: true },
   });
-  const manager = await resolveManagerForDepartment(
-    requester?.department,
-    requester?.position
-  );
+  const manager = await resolveManagerForBusinessRole(requester?.businessRole, requester?.homeOutletId, params.requesterId);
+  const officer = await resolveDisbursementOfficer(params.track, params.destination);
   return {
     managerId: manager.id,
+    disbursementOfficerId: officer.id,
     status: RequestStatus.MENUNGGU_MANAGER,
     notifyUserId: manager.id,
     submitNote: "Pengajuan dikirim ke manager departemen",
@@ -158,7 +149,7 @@ async function findRequestOr404(id: string) {
 }
 
 function assertCanView(
-  request: { requesterId: string; approverId: string; managerId: string | null },
+  request: { requesterId: string; approverId: string; managerId: string | null; disbursementOfficerId: string | null },
   user: AuthedRequest["user"]
 ) {
   if (!user) throw new HttpError(401, "Unauthorized");
@@ -166,6 +157,7 @@ function assertCanView(
   if (
     request.requesterId === user.id ||
     request.approverId === user.id ||
+    request.disbursementOfficerId === user.id ||
     request.managerId === user.id
   ) {
     return;
@@ -184,19 +176,27 @@ function applyListScope(
   user: AuthedRequest["user"],
   query: z.infer<typeof listQuerySchema>
 ) {
-  if (query.as === "requester" || user!.role === UserRole.PEMOHON) {
+  if (query.as === "manager" && user!.canApprove) {
+    where.managerId = user!.id;
+  } else if (query.as === "approver" && user!.canDisburse) {
+    where.OR = [{ disbursementOfficerId: user!.id }, { approverId: user!.id }];
+  } else if (query.as === "requester" || (user!.role === UserRole.PEMOHON && !user!.canApprove && !user!.canDisburse)) {
     where.requesterId = user!.id;
-  } else if (query.as === "manager" || user!.role === UserRole.MANAGER) {
+  } else if (user!.role === UserRole.MANAGER) {
     where.managerId = user!.id;
   } else if (user!.role === UserRole.APPROVER) {
     // Approver dual-role (mis. Sekretariat + manager GA): antrian approval + antrian manager.
     where.AND = [...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : []), {
-      OR: [{ approverId: user!.id }, { managerId: user!.id }],
+      OR: [{ approverId: user!.id }, { managerId: user!.id }, { disbursementOfficerId: user!.id }],
     }];
-  } else {
+  } else if (user!.role === UserRole.PEMOHON) {
+    where.OR = [{ requesterId: user!.id }, { managerId: user!.id }];
+  } else if (user!.role === UserRole.ADMIN) {
     if (query.requesterId) where.requesterId = query.requesterId;
     if (query.approverId) where.approverId = query.approverId;
     if (query.managerId) where.managerId = query.managerId;
+  } else {
+    where.requesterId = user!.id;
   }
 }
 
@@ -274,7 +274,7 @@ requestsRouter.get(
 requestsRouter.get(
   "/export.csv",
   asyncHandler<AuthedRequest>(async (req, res) => {
-    const query = listQuerySchema.parse({ ...req.query, page: 1, pageSize: 5000 });
+    const query = listQuerySchema.parse({ ...req.query, page: 1, pageSize: 100 });
     const user = req.user!;
     const where: Prisma.RequestWhereInput = {};
     applyListScope(where, user, query);
@@ -368,9 +368,11 @@ requestsRouter.post(
 
     const { prepared, total } = computeItems(body.items);
     const submitting = body.submit;
+    const destination = await destinationFor(body.categoryId, body.destination, submitting);
+    const officer = await resolveDisbursementOfficer(body.track, destination);
 
     let managerId: string | null = null;
-    let submitStatus: RequestStatus = RequestStatus.MENUNGGU_APPROVAL;
+    let submitStatus: RequestStatus = RequestStatus.MENUNGGU_MANAGER;
     let notifyUserId: string | null = null;
     let submitNote = "Pengajuan dikirim ke approver";
     let notifyTitle = "Pengajuan baru menunggu approval";
@@ -378,7 +380,7 @@ requestsRouter.post(
     if (submitting) {
       const assignment = await resolveSubmitAssignment({
         track: body.track,
-        approverId: body.approverId,
+        destination,
         requesterId: user.id,
       });
       managerId = assignment.managerId;
@@ -387,22 +389,9 @@ requestsRouter.post(
       submitNote = assignment.submitNote;
       notifyTitle = assignment.notifyTitle;
     } else {
-      await assertApproverValid(body.approverId, body.track, user.id);
-      if (body.track === ApproverTrack.FINANCE) {
-        try {
-          const requester = await prisma.user.findUnique({
-            where: { id: user.id },
-            select: { department: true, position: true },
-          });
-          const manager = await resolveManagerForDepartment(
-            requester?.department,
-            requester?.position
-          );
-          managerId = manager.id;
-        } catch {
-          managerId = null;
-        }
-      }
+      try {
+        managerId = (await resolveManagerForBusinessRole(user.businessRole, user.homeOutletId, user.id)).id;
+      } catch { managerId = null; }
     }
 
     const created = await prisma.$transaction(async (tx) => {
@@ -413,7 +402,11 @@ requestsRouter.post(
           number,
           requesterId: user.id,
           managerId,
-          approverId: body.approverId,
+          approverId: officer.id,
+          disbursementOfficerId: officer.id,
+          destination,
+          businessRoleAtSubmit: user.businessRole,
+          workflowVersion: 2,
           track: body.track,
           type: body.type,
           categoryId: body.categoryId || null,
@@ -478,9 +471,11 @@ requestsRouter.patch(
 
     const { prepared, total } = computeItems(body.items);
     const submitting = body.submit;
+    const destination = await destinationFor(body.categoryId, body.destination, submitting);
+    const officer = await resolveDisbursementOfficer(body.track, destination);
 
     let managerId: string | null = null;
-    let submitStatus: RequestStatus = RequestStatus.MENUNGGU_APPROVAL;
+    let submitStatus: RequestStatus = RequestStatus.MENUNGGU_MANAGER;
     let notifyUserId: string | null = null;
     let submitNote = "Pengajuan dikirim ulang setelah revisi";
     let notifyTitle = "Pengajuan diperbarui & dikirim ulang";
@@ -488,7 +483,7 @@ requestsRouter.patch(
     if (submitting) {
       const assignment = await resolveSubmitAssignment({
         track: body.track,
-        approverId: body.approverId,
+        destination,
         requesterId: req.user!.id,
       });
       managerId = assignment.managerId;
@@ -500,22 +495,9 @@ requestsRouter.patch(
           ? "Pengajuan dikirim ulang ke manager"
           : "Pengajuan diperbarui & dikirim ulang";
     } else {
-      await assertApproverValid(body.approverId, body.track, req.user!.id);
-      if (body.track === ApproverTrack.FINANCE) {
-        try {
-          const requester = await prisma.user.findUnique({
-            where: { id: req.user!.id },
-            select: { department: true, position: true },
-          });
-          const manager = await resolveManagerForDepartment(
-            requester?.department,
-            requester?.position
-          );
-          managerId = manager.id;
-        } catch {
-          managerId = existing.managerId;
-        }
-      }
+      try {
+        managerId = (await resolveManagerForBusinessRole(req.user!.businessRole, req.user!.homeOutletId, req.user!.id)).id;
+      } catch { managerId = existing.managerId; }
     }
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -524,7 +506,11 @@ requestsRouter.patch(
         where: { id: existing.id },
         data: {
           managerId,
-          approverId: body.approverId,
+          approverId: officer.id,
+          disbursementOfficerId: officer.id,
+          destination,
+          businessRoleAtSubmit: req.user!.businessRole,
+          workflowVersion: 2,
           track: body.track,
           type: body.type,
           categoryId: body.categoryId || null,
@@ -586,13 +572,31 @@ requestsRouter.post(
     if (!EDITABLE_STATUSES.includes(existing.status)) {
       throw new HttpError(409, "Pengajuan ini sudah dikirim sebelumnya");
     }
-    if (existing.items.length === 0) {
-      throw new HttpError(400, "Tambahkan minimal satu item sebelum mengirim");
-    }
+    requestBodySchema.parse({
+      type: existing.type,
+      track: existing.track,
+      destination: existing.destination,
+      categoryId: existing.categoryId,
+      title: existing.title,
+      purpose: existing.purpose,
+      neededDate: existing.neededDate,
+      bankName: existing.bankName,
+      bankAccountNumber: existing.bankAccountNumber,
+      bankAccountHolder: existing.bankAccountHolder,
+      items: existing.items.map((item) => ({
+        name: item.name,
+        spec: item.spec,
+        quantity: Number(item.quantity),
+        unit: item.unit,
+        unitPrice: Number(item.unitPrice),
+        note: item.note,
+      })),
+      submit: true,
+    });
 
     const assignment = await resolveSubmitAssignment({
       track: existing.track,
-      approverId: existing.approverId,
+      destination: await destinationFor(existing.categoryId, (existing.destination as Destination | null) ?? undefined),
       requesterId: req.user!.id,
     });
 
@@ -600,6 +604,11 @@ requestsRouter.post(
       where: { id: existing.id },
       data: {
         managerId: assignment.managerId,
+        disbursementOfficerId: assignment.disbursementOfficerId,
+        approverId: assignment.disbursementOfficerId,
+        destination: existing.destination ?? (existing.category?.kind === "OUTLET" ? "OUTLET" : "HO"),
+        businessRoleAtSubmit: req.user!.businessRole,
+        workflowVersion: 2,
         status: assignment.status,
         submittedAt: new Date(),
         decidedAt: null,

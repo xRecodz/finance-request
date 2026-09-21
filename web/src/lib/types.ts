@@ -25,6 +25,10 @@ export type ManagedUser = {
   phone: string | null;
   position: string | null;
   department: string | null;
+  businessRole?: string | null;
+  workLocation?: string | null;
+  homeOutletId?: string | null;
+  onboardingComplete?: boolean;
   role: UserRole;
   approverTrack: ApproverTrack | null;
   mustChangePassword: boolean;
@@ -43,6 +47,12 @@ export type AuthUser = {
   role: UserRole;
   approverTrack: ApproverTrack | null;
   mustChangePassword: boolean;
+  onboardingComplete: boolean;
+  businessRole: string | null;
+  workLocation: string | null;
+  homeOutletId: string | null;
+  canApprove: boolean;
+  canDisburse: boolean;
   department?: string | null;
   position?: string | null;
 };
@@ -64,6 +74,8 @@ export type RequestRow = {
   title: string;
   type: string;
   track: ApproverTrack;
+  destination?: "HO" | "OUTLET" | null;
+  workflowVersion?: number;
   status: string;
   statusLabel: string;
   totalAmount: number;
@@ -78,6 +90,8 @@ export type RequestRow = {
   requester: { id: string; nip: string; name: string; position?: string | null };
   manager?: { id: string; nip: string; name: string; position?: string | null } | null;
   approver: { id: string; nip: string; name: string; position?: string | null };
+  disbursementOfficer?: { id: string; nip: string; name: string } | null;
+  disbursements?: Array<{ id: string; amount: number; disbursedAt: string; reference?: string | null; status: string }>;
   category?: { id: string; code: string; name: string } | null;
   itemCount?: number;
   purpose?: string;

@@ -15,6 +15,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
 
 export default function ItUsersPage() {
   const [q, setQ] = useState("");
+  const [appliedQ, setAppliedQ] = useState("");
   const [role, setRole] = useState("");
   const [active, setActive] = useState("");
   const [page, setPage] = useState(1);
@@ -29,7 +30,7 @@ export default function ItUsersPage() {
     setError("");
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "20" });
-      if (q.trim()) params.set("q", q.trim());
+      if (appliedQ) params.set("q", appliedQ);
       if (role) params.set("role", role);
       if (active) params.set("isActive", active);
       const res = await api<{
@@ -44,7 +45,7 @@ export default function ItUsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, q, role, active]);
+  }, [page, appliedQ, role, active]);
 
   useEffect(() => {
     void load();
@@ -53,7 +54,8 @@ export default function ItUsersPage() {
   function onSearch(e: FormEvent) {
     e.preventDefault();
     setPage(1);
-    void load();
+    if (appliedQ === q.trim() && page === 1) void load();
+    else setAppliedQ(q.trim());
   }
 
   return (

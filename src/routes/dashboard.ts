@@ -3,7 +3,6 @@ import { RequestStatus, UserRole } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
-  DISBURSED_STATUSES,
   PENDING_APPROVAL_STATUSES,
   PENDING_MANAGER_STATUSES,
   STATUS_LABEL,
@@ -40,12 +39,20 @@ function scopeWhere(
   as?: "requester" | "approver" | "manager"
 ): Prisma.RequestWhereInput {
   const where: Prisma.RequestWhereInput = {};
-  if (as === "requester" || user!.role === UserRole.PEMOHON) {
+  if (as === "manager" && user!.canApprove) {
+    where.managerId = user!.id;
+  } else if (as === "approver" && user!.canDisburse) {
+    where.OR = [{ disbursementOfficerId: user!.id }, { approverId: user!.id }];
+  } else if (as === "requester" || (user!.role === UserRole.PEMOHON && !user!.canApprove)) {
     where.requesterId = user!.id;
-  } else if (as === "manager" || user!.role === UserRole.MANAGER) {
+  } else if (user!.role === UserRole.MANAGER) {
     where.managerId = user!.id;
   } else if (user!.role === UserRole.APPROVER) {
-    where.OR = [{ approverId: user!.id }, { managerId: user!.id }];
+    where.OR = [{ approverId: user!.id }, { managerId: user!.id }, { disbursementOfficerId: user!.id }];
+  } else if (user!.role === UserRole.PEMOHON) {
+    where.OR = [{ requesterId: user!.id }, { managerId: user!.id }];
+  } else if (user!.role === UserRole.IT) {
+    where.requesterId = user!.id;
   }
 
   if (from || to) {
@@ -63,9 +70,9 @@ dashboardRouter.get(
     const { from, to, as } = rangeSchema.parse(req.query);
     const user = req.user!;
     const where = scopeWhere(user, from, to, as);
-    const asRequester = as === "requester" || user.role === UserRole.PEMOHON;
+    const asRequester = as === "requester" || (user.role === UserRole.PEMOHON && !user.canApprove);
     const pendingStatuses =
-      user.role === UserRole.MANAGER
+      as === "manager" || (user.role === UserRole.MANAGER && as !== "approver")
         ? PENDING_MANAGER_STATUSES
         : [...PENDING_MANAGER_STATUSES, ...PENDING_APPROVAL_STATUSES];
 
@@ -76,12 +83,13 @@ dashboardRouter.get(
         _count: { _all: true },
         _sum: { totalAmount: true, approvedAmount: true },
       }),
-      prisma.request.aggregate({
+      prisma.disbursement.aggregate({
         where: {
-          ...where,
-          status: { in: DISBURSED_STATUSES },
+          status: "VALID",
+          request: { is: { ...where, createdAt: undefined } },
+          ...(from || to ? { disbursedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: endOfDay(to) } : {}) } } : {}),
         },
-        _sum: { approvedAmount: true, totalAmount: true },
+        _sum: { amount: true },
         _count: { _all: true },
       }),
       prisma.request.count({
@@ -91,24 +99,11 @@ dashboardRouter.get(
         },
       }),
       !asRequester &&
-      (user.role === UserRole.APPROVER ||
-        user.role === UserRole.MANAGER ||
-        user.role === UserRole.ADMIN)
+      (user.canApprove || user.canDisburse || user.role === UserRole.ADMIN)
         ? prisma.request.groupBy({
             by: ["requesterId"],
             where: {
-              ...(user.role === UserRole.APPROVER
-                ? { OR: [{ approverId: user.id }, { managerId: user.id }] }
-                : {}),
-              ...(user.role === UserRole.MANAGER ? { managerId: user.id } : {}),
-              ...(from || to
-                ? {
-                    createdAt: {
-                      ...(from ? { gte: from } : {}),
-                      ...(to ? { lte: endOfDay(to) } : {}),
-                    },
-                  }
-                : {}),
+              ...where,
               status: { not: RequestStatus.DRAFT },
             },
             _count: { _all: true },
@@ -168,13 +163,29 @@ dashboardRouter.get(
       take: 5000,
     });
 
+    const paymentsForChart = await prisma.disbursement.findMany({
+      where: {
+        status: "VALID",
+        request: { is: { ...where, createdAt: undefined } },
+        ...(from || to ? { disbursedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: endOfDay(to) } : {}) } } : {}),
+      },
+      select: { disbursedAt: true, amount: true },
+      orderBy: { disbursedAt: "asc" },
+      take: 5000,
+    });
+
     const monthMap = new Map<string, { count: number; totalAmount: number; approvedAmount: number }>();
     for (const row of recentForChart) {
       const month = `${row.createdAt.getFullYear()}-${String(row.createdAt.getMonth() + 1).padStart(2, "0")}`;
       const bucket = monthMap.get(month) ?? { count: 0, totalAmount: 0, approvedAmount: 0 };
       bucket.count += 1;
       bucket.totalAmount += toNumber(row.totalAmount);
-      bucket.approvedAmount += toNumber(row.approvedAmount ?? 0);
+      monthMap.set(month, bucket);
+    }
+    for (const payment of paymentsForChart) {
+      const month = `${payment.disbursedAt.getFullYear()}-${String(payment.disbursedAt.getMonth() + 1).padStart(2, "0")}`;
+      const bucket = monthMap.get(month) ?? { count: 0, totalAmount: 0, approvedAmount: 0 };
+      bucket.approvedAmount += toNumber(payment.amount);
       monthMap.set(month, bucket);
     }
     const monthlyChart = [...monthMap.entries()]
@@ -182,7 +193,7 @@ dashboardRouter.get(
       .slice(-12)
       .map(([month, value]) => ({ month, ...value }));
 
-    const disbursedNominal = toNumber(amountAgg._sum.approvedAmount ?? amountAgg._sum.totalAmount ?? 0);
+    const disbursedNominal = toNumber(amountAgg._sum.amount ?? 0);
 
     res.json({
       data: {

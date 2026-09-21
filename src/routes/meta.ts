@@ -3,6 +3,9 @@ import { CategoryKind, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { outletCode } from "../lib/outlets";
+import { resolveManagerForBusinessRole } from "../lib/manager";
+import { BUSINESS_ROLES } from "../lib/managerMap";
+import { resolveDisbursementOfficer } from "../lib/routing";
 import {
   AuthedRequest,
   requireAuth,
@@ -13,6 +16,33 @@ import { asyncHandler } from "../middleware/errorHandler";
 export const metaRouter = Router();
 
 metaRouter.use(requireAuth, requirePasswordChanged);
+
+metaRouter.get("/business-roles", (_req, res) => res.json({ data: BUSINESS_ROLES }));
+
+metaRouter.get("/disbursement-preview", asyncHandler<AuthedRequest>(async (req, res) => {
+  const track = req.query.track === "FINANCE" ? "FINANCE" : "DIREKTUR";
+  const destination = req.query.destination === "OUTLET" ? "OUTLET" : "HO";
+  try {
+    const officer = await resolveDisbursementOfficer(track, destination);
+    res.json({ data: { id: officer.id, nip: officer.nip, name: officer.name } });
+  } catch {
+    res.json({ data: null, message: "Petugas pencairan belum diatur" });
+  }
+}));
+
+metaRouter.get(
+  "/manager-preview",
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    const role = String(req.query.role || "");
+    const outletId = typeof req.query.outletId === "string" ? req.query.outletId : null;
+    try {
+      const manager = await resolveManagerForBusinessRole(role, outletId, req.user!.id);
+      res.json({ data: { id: manager.id, name: manager.name, nip: manager.nip } });
+    } catch {
+      res.json({ data: null, message: "Manager belum diatur untuk pilihan ini" });
+    }
+  })
+);
 
 /** Daftar approver aktif untuk dropdown "pengajuan kepada siapa". */
 metaRouter.get(

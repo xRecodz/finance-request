@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ExternalLink, FileText, Paperclip, Printer, Trash2, Upload } from "lucide-react";
+import { Download, ExternalLink, FileText, Paperclip, Printer, Trash2, Upload } from "lucide-react";
 import { AttachmentPreview, AttachmentThumb } from "@/components/AttachmentPreview";
 import { RequestDocumentSheet } from "@/components/RequestDocumentSheet";
 import { api, ApiError, getToken } from "@/lib/api";
@@ -31,6 +31,7 @@ export function DocumentPreviewPanel({
 }) {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const documentRef = useRef<HTMLDivElement>(null);
   const attachments = useMemo(
     () =>
       (data.attachments || []).filter((f) =>
@@ -59,6 +60,36 @@ export function DocumentPreviewPanel({
   const isRequester = user?.id === data.requester.id;
   const canManagePendukung =
     isRequester && ["DRAFT", "REVISI"].includes(data.status);
+
+  async function downloadDocument(format: "png" | "pdf") {
+    if (!documentRef.current) return;
+    setBusy(true); setError("");
+    try {
+      const { toPng } = await import("html-to-image");
+      const png = await toPng(documentRef.current, { backgroundColor: "#ffffff", pixelRatio: 2, cacheBust: true });
+      const filename = data.number.replace(/[^a-zA-Z0-9-_]/g, "-");
+      if (format === "png") {
+        const link = document.createElement("a");
+        link.href = png; link.download = `${filename}.png`; link.click();
+      } else {
+        const { jsPDF } = await import("jspdf");
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        const image = pdf.getImageProperties(png);
+        const margin = 10;
+        const width = 210 - margin * 2;
+        const height = image.height * width / image.width;
+        const pageHeight = 297 - margin * 2;
+        const pages = Math.ceil(height / pageHeight);
+        for (let page = 0; page < pages; page++) {
+          if (page) pdf.addPage();
+          pdf.addImage(png, "PNG", margin, margin - page * pageHeight, width, height);
+        }
+        pdf.save(`${filename}.pdf`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyiapkan dokumen");
+    } finally { setBusy(false); }
+  }
 
   async function uploadFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -114,6 +145,8 @@ export function DocumentPreviewPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={busy || tab !== "form"} onClick={() => void downloadDocument("pdf")} className="btn-ghost inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold disabled:opacity-40"><Download size={15}/> PDF</button>
+          <button type="button" disabled={busy || tab !== "form"} onClick={() => void downloadDocument("png")} className="btn-ghost inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold disabled:opacity-40"><Download size={15}/> PNG</button>
           <a
             href={`/dokumen/${data.id}?print=1`}
             target="_blank"
@@ -161,7 +194,7 @@ export function DocumentPreviewPanel({
 
       {tab === "form" ? (
         <div className="max-h-[75vh] overflow-auto bg-[#ece4e6] p-3 md:p-4">
-          <div className="print-frame mx-auto max-w-[190mm] rounded-sm bg-white p-4 shadow-xl shadow-black/15 md:p-5">
+          <div ref={documentRef} className="print-frame mx-auto max-w-[190mm] rounded-sm bg-white p-4 shadow-xl shadow-black/15 md:p-5">
             <RequestDocumentSheet data={data} />
           </div>
         </div>

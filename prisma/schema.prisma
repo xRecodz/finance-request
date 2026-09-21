@@ -77,6 +77,11 @@ model User {
   phone         String?
   position      String?
   department    String?
+  businessRole  String?
+  workLocation  String?
+  homeOutletId  String?
+  homeOutlet    Category?      @relation("UserHomeOutlet", fields: [homeOutletId], references: [id])
+  onboardingComplete Boolean  @default(false)
   role          UserRole       @default(PEMOHON)
   /// Diisi hanya untuk role APPROVER: jalur mana yang ia tangani.
   approverTrack ApproverTrack?
@@ -93,6 +98,10 @@ model User {
   requestsCreated  Request[]      @relation("RequestRequester")
   requestsAssigned Request[]      @relation("RequestApprover")
   requestsManaged  Request[]      @relation("RequestManager")
+  requestsToDisburse Request[] @relation("RequestDisbursementOfficer")
+  managerRoutes ManagerRoute[] @relation("ManagerRouteUser")
+  disbursementRoutes DisbursementRoute[] @relation("DisbursementRouteUser")
+  disbursements Disbursement[] @relation("DisbursementActor")
   approvalLogs     ApprovalLog[]
   lpjSubmitted     Lpj[]          @relation("LpjSubmitter")
   lpjVerified      Lpj[]          @relation("LpjVerifier")
@@ -117,6 +126,7 @@ model Category {
   updatedAt   DateTime     @updatedAt
 
   requests Request[]
+  homeUsers User[] @relation("UserHomeOutlet")
 
   @@index([kind, isActive, sortOrder])
 }
@@ -135,6 +145,11 @@ model Request {
   manager   User?  @relation("RequestManager", fields: [managerId], references: [id])
   approverId  String
   approver    User   @relation("RequestApprover", fields: [approverId], references: [id])
+  disbursementOfficerId String?
+  disbursementOfficer User? @relation("RequestDisbursementOfficer", fields: [disbursementOfficerId], references: [id])
+  destination String?
+  businessRoleAtSubmit String?
+  workflowVersion Int @default(1)
 
   track      ApproverTrack
   type       RequestType   @default(DANA)
@@ -171,10 +186,12 @@ model Request {
   logs        ApprovalLog[]
   lpj         Lpj?
   notifications Notification[]
+  disbursements Disbursement[]
 
   @@index([requesterId, status])
   @@index([managerId, status])
   @@index([approverId, status])
+  @@index([disbursementOfficerId, status])
   @@index([status, createdAt])
   @@index([track, createdAt])
   @@index([submittedAt])
@@ -329,4 +346,52 @@ model RequestCounter {
   period     String   @id
   lastNumber Int      @default(0)
   updatedAt  DateTime @updatedAt
+}
+
+model ManagerRoute {
+  id String @id @default(cuid())
+  businessRole String
+  outletCategoryId String?
+  managerId String
+  manager User @relation("ManagerRouteUser", fields: [managerId], references: [id])
+  isActive Boolean @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@index([businessRole, outletCategoryId, isActive])
+}
+
+model DisbursementRoute {
+  id String @id @default(cuid())
+  track ApproverTrack
+  destination String
+  officerId String
+  officer User @relation("DisbursementRouteUser", fields: [officerId], references: [id])
+  isActive Boolean @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@unique([track, destination])
+}
+
+model Disbursement {
+  id String @id @default(cuid())
+  requestId String
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  officerId String
+  officer User @relation("DisbursementActor", fields: [officerId], references: [id])
+  amount Decimal @db.Decimal(18, 2)
+  reference String?
+  disbursedAt DateTime
+  status String @default("VALID")
+  source String @default("NEW")
+  createdAt DateTime @default(now())
+
+  @@index([requestId, status])
+  @@index([officerId, disbursedAt])
+  @@index([disbursedAt, status])
+}
+
+model SystemSetting {
+  key String @id
+  value String @db.Text
+  updatedAt DateTime @updatedAt
 }

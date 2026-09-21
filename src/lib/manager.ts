@@ -1,5 +1,6 @@
 import { UserRole } from "@prisma/client";
 import {
+  BUSINESS_ROLE_MANAGER_NIPS,
   DEPARTMENT_MANAGER_MAP,
   POSITION_MANAGER_RULES,
   managerNipsFromMap,
@@ -8,6 +9,35 @@ import { prisma } from "./prisma";
 import { HttpError } from "../middleware/errorHandler";
 
 export { managerNipsFromMap };
+
+/** Business role dipilih saat onboarding; route DB dapat menimpa nilai awal. */
+export async function resolveManagerForBusinessRole(
+  businessRole: string | null | undefined,
+  outletCategoryId?: string | null,
+  requesterId?: string
+) {
+  const role = businessRole?.toUpperCase().trim();
+  if (!role) throw new HttpError(400, "Pilih divisi pada profil sebelum mengirim pengajuan");
+  const route = await prisma.managerRoute.findFirst({
+    where: { businessRole: role, isActive: true, outletCategoryId: outletCategoryId || null },
+    include: { manager: true },
+    orderBy: { updatedAt: "desc" },
+  }) ?? await prisma.managerRoute.findFirst({
+    where: { businessRole: role, isActive: true, outletCategoryId: null },
+    include: { manager: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  const manager = route?.manager ?? (BUSINESS_ROLE_MANAGER_NIPS[role]
+    ? await prisma.user.findUnique({ where: { nip: BUSINESS_ROLE_MANAGER_NIPS[role] } })
+    : null);
+  if (!manager || !manager.isActive) {
+    throw new HttpError(400, `Manager untuk divisi ${role} belum diatur. Hubungi Portal IT.`);
+  }
+  if (requesterId && manager.id === requesterId) {
+    throw new HttpError(400, "Manager pengajuan tidak boleh sama dengan pemohon. Hubungi Portal IT untuk pengganti.");
+  }
+  return manager;
+}
 
 /**
  * Apakah NIP ini terdaftar sebagai manager di map

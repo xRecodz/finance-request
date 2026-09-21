@@ -11,6 +11,8 @@ import { lpjRouter } from "./routes/lpj";
 import { metaRouter } from "./routes/meta";
 import { requestsRouter } from "./routes/requests";
 import { usersRouter } from "./routes/users";
+import { settingsRouter } from "./routes/settings";
+import { aiRouter } from "./routes/ai";
 
 export function createApp() {
   const app = express();
@@ -44,6 +46,8 @@ export function createApp() {
   app.use("/api/approvals", approvalsRouter);
   app.use("/api/attachments", attachmentsRouter);
   app.use("/api/users", usersRouter);
+  app.use("/api/settings", settingsRouter);
+  app.use("/api/ai", aiRouter);
   app.use("/api", lpjRouter);
 
   app.use(notFoundHandler);

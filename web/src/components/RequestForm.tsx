@@ -4,14 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { OutletCombobox } from "@/components/OutletCombobox";
 import { api, ApiError } from "@/lib/api";
-import {
-  APPROVER_CATEGORY_NIPS,
-  type CategoryMode,
-  type SekretariatDest,
-} from "@/lib/approverCategories";
+import { useAuth } from "@/lib/auth";
+import { type CategoryMode, type SekretariatDest } from "@/lib/approverCategories";
 import { formatRupiah } from "@/lib/format";
 import type {
-  ApproverOption,
   ApproverTrack,
   CategoryOption,
   RequestItem,
@@ -27,6 +23,24 @@ const emptyItem = (): RequestItem => ({
   note: "",
 });
 
+const fieldLabels: Record<string, string> = {
+  title: "Judul",
+  purpose: "Keperluan",
+  categoryId: "Kategori",
+  neededDate: "Tanggal dibutuhkan",
+  items: "Item",
+  track: "Jalur pengajuan",
+  destination: "Pengajuan kepada",
+};
+
+function formError(err: unknown): string {
+  if (!(err instanceof ApiError)) return "Gagal menyimpan pengajuan";
+  const details = Object.entries(err.fields || {}).flatMap(([field, messages]) =>
+    (messages || []).map((message) => `${fieldLabels[field] || field}: ${message}`)
+  );
+  return details.length ? details.join(". ") : err.message;
+}
+
 function toDateInput(value?: string | null) {
   if (!value) return "";
   const d = new Date(value);
@@ -41,13 +55,14 @@ type Props = {
 };
 
 export function RequestForm({ mode, initial, onSave }: Props) {
-  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const { user } = useAuth();
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [track, setTrack] = useState<ApproverTrack>(initial?.track || "DIREKTUR");
   const [type, setType] = useState<string>(initial?.type || "DANA");
-  const [approverId, setApproverId] = useState(initial?.approver?.id || "");
   /** Head Office | Outlet — label UI; mapping ke approver di belakang layar. */
-  const [dest, setDest] = useState<SekretariatDest>("HO");
+  const [dest, setDest] = useState<SekretariatDest>(initial?.destination || "HO");
+  const [managerName, setManagerName] = useState("Memuat...");
+  const [officerName, setOfficerName] = useState("Memuat...");
   const [categoryId, setCategoryId] = useState(initial?.category?.id || "");
   const [outletQuery, setOutletQuery] = useState(initial?.category?.name || "");
   const [title, setTitle] = useState(initial?.title || "");
@@ -72,33 +87,18 @@ export function RequestForm({ mode, initial, onSave }: Props) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    void Promise.all([
-      api<{ data: ApproverOption[] }>("/api/meta/approvers"),
-      api<{ data: CategoryOption[] }>("/api/meta/categories"),
-    ]).then(([a, c]) => {
-      setApprovers(a.data);
-      setCategories(c.data);
-    });
+    void api<{ data: CategoryOption[] }>("/api/meta/categories")
+      .then(result => setCategories(result.data)).catch(() => {});
   }, []);
 
-  const sekretariatUser = useMemo(
-    () => approvers.find((a) => a.nip === APPROVER_CATEGORY_NIPS.SEKRETARIAT),
-    [approvers]
-  );
-  const financeOutletUser = useMemo(
-    () => approvers.find((a) => a.nip === APPROVER_CATEGORY_NIPS.FINANCE_OUTLET),
-    [approvers]
-  );
-  const financeHoUser = useMemo(
-    () => approvers.find((a) => a.nip === APPROVER_CATEGORY_NIPS.FINANCE_HO),
-    [approvers]
-  );
-
-  const tracksWithApprovers = useMemo(() => {
-    const set = new Set<ApproverTrack>();
-    for (const a of approvers) set.add(a.approverTrack);
-    return set;
-  }, [approvers]);
+  useEffect(() => {
+    if (!user?.businessRole) return;
+    const params = new URLSearchParams({ role: user.businessRole });
+    if (user.homeOutletId) params.set("outletId", user.homeOutletId);
+    void api<{ data: { name: string } | null; message?: string }>(`/api/meta/manager-preview?${params}`)
+      .then((res) => setManagerName(res.data?.name || res.message || "Belum diatur"))
+      .catch(() => setManagerName("Belum diatur"));
+  }, [user?.businessRole, user?.homeOutletId]);
 
   const categoryMode: CategoryMode = dest === "OUTLET" ? "outlet" : "head_office";
 
@@ -111,30 +111,20 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     );
   }, [categories, categoryMode]);
 
-  // Mapping: Sekretariat→Bu Sari; Finance+Outlet→Belly; Finance+HO→Resi
   useEffect(() => {
-    if (track === "DIREKTUR") {
-      if (sekretariatUser && approverId !== sekretariatUser.id) {
-        setApproverId(sekretariatUser.id);
-      }
-      return;
-    }
-    if (track === "FINANCE") {
-      const target = dest === "OUTLET" ? financeOutletUser : financeHoUser;
-      if (target && approverId !== target.id) {
-        setApproverId(target.id);
-      }
-    }
-  }, [track, dest, sekretariatUser, financeOutletUser, financeHoUser, approverId]);
+    void api<{ data: { name: string } | null; message?: string }>(`/api/meta/disbursement-preview?track=${track}&destination=${dest}`)
+      .then(result => setOfficerName(result.data?.name || result.message || "Belum diatur"))
+      .catch(() => setOfficerName("Belum diatur"));
+  }, [track, dest]);
 
   useEffect(() => {
-    if (!categoryId) return;
+    if (!categoryId || categories.length === 0) return;
     const stillValid = visibleCategories.some((c) => c.id === categoryId);
     if (!stillValid) {
       setCategoryId("");
       setOutletQuery("");
     }
-  }, [categoryMode, visibleCategories, categoryId]);
+  }, [categoryMode, visibleCategories, categoryId, categories.length]);
 
   useEffect(() => {
     if (mode !== "edit" || !initial?.category) return;
@@ -173,7 +163,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     return {
       type,
       track,
-      approverId,
+      destination: dest,
       categoryId: resolvedCategoryId,
       title,
       purpose,
@@ -197,9 +187,8 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     setError("");
     setSaving(true);
     try {
-      if (!approverId) throw new ApiError("Pilih tujuan pengajuan", 400);
       const resolved = await resolveCategoryId();
-      if (!resolved) {
+      if (submitNow && !resolved) {
         throw new ApiError(
           categoryMode === "outlet" ? "Kategori outlet wajib diisi" : "Kategori wajib dipilih",
           400
@@ -207,7 +196,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
       }
       await onSave(buildPayload(submitNow, resolved), submitNow);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Gagal menyimpan pengajuan");
+      setError(formError(err));
     } finally {
       setSaving(false);
     }
@@ -227,7 +216,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </h1>
           <p className="text-sli-muted">
             {mode === "create"
-              ? "Isi detail permohonan dan item. Jalur Finance menunggu manager dulu, lalu Finance."
+              ? "Isi detail permohonan dan item. Semua jalur diperiksa manager sebelum pencairan."
               : `${initial?.number || ""} — ubah data lalu simpan draft atau kirim ulang.`}
           </p>
         </div>
@@ -243,7 +232,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
 
       {isRevisi && initial?.decisionNote ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <p className="font-semibold">Catatan revisi dari approver</p>
+          <p className="font-semibold">Catatan revisi dari manager</p>
           <p className="mt-1 whitespace-pre-wrap">{initial.decisionNote}</p>
         </div>
       ) : null}
@@ -251,7 +240,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
       <div className="panel grid gap-4 rounded-2xl p-5 md:grid-cols-2">
         <label className="block md:col-span-2">
           <span className="mb-1.5 block text-sm font-semibold">Judul pengajuan</span>
-          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} minLength={3} required />
         </label>
         <label className="block md:col-span-2">
           <span className="mb-1.5 block text-sm font-semibold">Keperluan / uraian</span>
@@ -259,6 +248,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
             className="input min-h-28"
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
+            minLength={5}
             required
           />
         </label>
@@ -281,12 +271,8 @@ export function RequestForm({ mode, initial, onSave }: Props) {
               setOutletQuery("");
             }}
           >
-            <option value="DIREKTUR" disabled={!tracksWithApprovers.has("DIREKTUR")}>
-              Sekretariat{!tracksWithApprovers.has("DIREKTUR") ? " (tidak tersedia)" : ""}
-            </option>
-            <option value="FINANCE" disabled={!tracksWithApprovers.has("FINANCE")}>
-              Finance{!tracksWithApprovers.has("FINANCE") ? " (tidak tersedia)" : ""}
-            </option>
+            <option value="DIREKTUR">Sekretariat</option>
+            <option value="FINANCE">Finance</option>
           </select>
         </label>
 
@@ -302,19 +288,19 @@ export function RequestForm({ mode, initial, onSave }: Props) {
             }}
             required
           >
-            <option value="OUTLET" disabled={track === "FINANCE" && !financeOutletUser}>
+            <option value="OUTLET">
               Outlet
             </option>
-            <option value="HO" disabled={track === "FINANCE" && !financeHoUser}>
+            <option value="HO">
               Head Office
             </option>
           </select>
           <p className="mt-1 text-xs text-sli-muted">
             {track === "DIREKTUR"
-              ? "Approval langsung ke Sekretariat. Head Office / Outlet menentukan kategori."
+              ? "Setelah manager menyetujui, Sekretariat mencairkan pengajuan."
               : dest === "OUTLET"
-                ? "Setelah diajukan: menunggu approval manager (sesuai departemen Anda), lalu Finance (Outlet)."
-                : "Setelah diajukan: menunggu approval manager (sesuai departemen Anda), lalu Finance (Head Office)."}
+                ? "Setelah manager menyetujui, Finance Outlet mencairkan pengajuan."
+                : "Setelah manager menyetujui, Finance Head Office mencairkan pengajuan."}
           </p>
         </label>
 
@@ -433,6 +419,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
                 placeholder="Satuan"
                 value={item.unit}
                 onChange={(e) => updateItem(index, { unit: e.target.value })}
+                required
               />
               <input
                 className="input"
@@ -469,6 +456,11 @@ export function RequestForm({ mode, initial, onSave }: Props) {
       </div>
 
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
+
+      <div className="panel rounded-2xl p-4 text-sm">
+        <p><strong>Manager:</strong> {managerName}</p>
+        <p className="mt-1"><strong>Petugas pencairan:</strong> {officerName}</p>
+      </div>
 
       <div className="flex flex-wrap gap-3">
         <button

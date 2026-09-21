@@ -25,12 +25,17 @@ export function Guard({
       router.replace("/change-password");
       return;
     }
-    if (!roles.includes(user.role)) {
+    if (!user.onboardingComplete) {
+      router.replace("/setup-profile");
+      return;
+    }
+    if (!roles.includes(user.role) && !(roles.includes("MANAGER") && user.canApprove) && !(roles.includes("APPROVER") && user.canDisburse)) {
       router.replace(homePathForRole(user.role));
     }
   }, [user, loading, roles, router]);
 
-  if (loading || !user || user.mustChangePassword || !roles.includes(user.role)) {
+  if (loading || !user || user.mustChangePassword || !user.onboardingComplete ||
+    (!roles.includes(user.role) && !(roles.includes("MANAGER") && user.canApprove) && !(roles.includes("APPROVER") && user.canDisburse))) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sli-muted">
         Memuat sesi...

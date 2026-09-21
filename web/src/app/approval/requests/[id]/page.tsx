@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { DocumentPreviewPanel } from "@/components/DocumentPreviewPanel";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -16,19 +16,21 @@ export default function ApprovalDetailPage() {
   const [approvedAmount, setApprovedAmount] = useState(0);
   const [note, setNote] = useState("");
   const [disbursementRef, setDisbursementRef] = useState("");
+  const [disbursementAmount, setDisbursementAmount] = useState(0);
   const [proof, setProof] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     const res = await api<{ data: RequestRow }>(`/api/requests/${params.id}`);
     setData(res.data);
     setApprovedAmount(res.data.approvedAmount ?? res.data.totalAmount);
-  }
+    setDisbursementAmount(res.data.approvedAmount ?? res.data.totalAmount);
+  }, [params.id]);
 
   useEffect(() => {
     void load();
-  }, [params.id]);
+  }, [load]);
 
   async function act(path: string, body?: BodyInit | object, isForm = false) {
     setBusy(true);
@@ -77,6 +79,7 @@ export default function ApprovalDetailPage() {
     e.preventDefault();
     const fd = new FormData();
     if (disbursementRef) fd.append("disbursementRef", disbursementRef);
+    fd.append("amount", String(disbursementAmount));
     if (note) fd.append("note", note);
     if (proof) fd.append("proof", proof);
     await act(`/api/approvals/${params.id}/disburse`, fd, true);
@@ -107,9 +110,11 @@ export default function ApprovalDetailPage() {
         : null;
 
   const showManagerDecision = data.status === "MENUNGGU_MANAGER" && canActAsAssignedManager;
-  const showFinanceDecision = data.status === "MENUNGGU_APPROVAL" && !isPureManager;
-  const showDisburse = data.status === "DISETUJUI" && !isPureManager;
-  const showLpjVerify = data.status === "LPJ_MENUNGGU" && data.lpj && !isPureManager;
+  const assignedOfficer = user?.role === "ADMIN" || (data.workflowVersion && data.workflowVersion >= 2
+    ? data.disbursementOfficer?.id === user?.id : data.approver?.id === user?.id);
+  const showFinanceDecision = data.status === "MENUNGGU_APPROVAL" && !isPureManager && assignedOfficer;
+  const showDisburse = data.status === "DISETUJUI" && assignedOfficer;
+  const showLpjVerify = data.status === "LPJ_MENUNGGU" && data.lpj && assignedOfficer;
 
   return (
     <div className="space-y-5">
@@ -146,7 +151,7 @@ export default function ApprovalDetailPage() {
         <form onSubmit={onApprove} className="panel space-y-3 rounded-2xl p-5">
           <h2 className="font-semibold">Keputusan manager</h2>
           <p className="text-sm text-sli-muted">
-            Setujui untuk meneruskan ke Finance, atau minta revisi / tolak.
+            Setujui untuk meneruskan ke petugas pencairan, atau minta revisi / tolak.
           </p>
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Catatan</span>
@@ -154,7 +159,7 @@ export default function ApprovalDetailPage() {
           </label>
           <div className="flex flex-wrap gap-2">
             <button type="submit" disabled={busy} className="btn-primary rounded-xl px-4 py-2 text-sm font-semibold">
-              Setujui & teruskan ke Finance
+              Setujui & teruskan ke pencairan
             </button>
             <button
               type="button"
@@ -222,6 +227,10 @@ export default function ApprovalDetailPage() {
       {showDisburse ? (
         <form onSubmit={onDisburse} className="panel space-y-3 rounded-2xl p-5">
           <h2 className="font-semibold">Pencairan dana</h2>
+          <label className="block"><span className="mb-1 block text-sm font-semibold">Nominal aktual dicairkan</span>
+            <input className="input" type="number" min="1" max={data.approvedAmount ?? data.totalAmount}
+              value={disbursementAmount} onChange={(e) => setDisbursementAmount(Number(e.target.value))} required />
+          </label>
           <input
             className="input"
             placeholder="Referensi transfer (opsional)"

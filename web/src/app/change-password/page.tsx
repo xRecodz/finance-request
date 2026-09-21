@@ -26,6 +26,10 @@ export default function ChangePasswordPage() {
     setSaving(true);
     try {
       await changePassword(currentPassword, newPassword, confirmPassword);
+      if (!user?.onboardingComplete) {
+        router.replace("/setup-profile");
+        return;
+      }
       const portal = (typeof window !== "undefined"
         ? sessionStorage.getItem("sli_post_login_portal")
         : null) as Portal | null;

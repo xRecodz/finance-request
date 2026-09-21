@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import type { ApproverTrack, ManagedUser, UserRole } from "@/lib/types";
+import type { ApproverTrack, CategoryOption, ManagedUser, UserRole } from "@/lib/types";
 
 type FormState = {
   name: string;
@@ -12,6 +12,10 @@ type FormState = {
   phone: string;
   position: string;
   department: string;
+  businessRole: string;
+  workLocation: string;
+  homeOutletId: string;
+  onboardingComplete: boolean;
   role: Exclude<UserRole, "ADMIN"> | "ADMIN";
   approverTrack: ApproverTrack | "";
   isActive: boolean;
@@ -26,6 +30,9 @@ export default function ItEditUserPage() {
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [outlets, setOutlets] = useState<CategoryOption[]>([]);
+
+  useEffect(() => { void api<{ data: CategoryOption[] }>("/api/meta/categories?kind=OUTLET").then(result => setOutlets(result.data)).catch(() => {}); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +49,10 @@ export default function ItEditUserPage() {
           phone: res.data.phone || "",
           position: res.data.position || "",
           department: res.data.department || "",
+          businessRole: res.data.businessRole || "",
+          workLocation: res.data.workLocation || "",
+          homeOutletId: res.data.homeOutletId || "",
+          onboardingComplete: res.data.onboardingComplete || false,
           role: res.data.role,
           approverTrack: res.data.approverTrack || "",
           isActive: res.data.isActive,
@@ -74,6 +85,10 @@ export default function ItEditUserPage() {
         phone: form.phone.trim() || null,
         position: form.position.trim() || null,
         department: form.department.trim() || null,
+        businessRole: form.businessRole || null,
+        workLocation: form.workLocation || null,
+        homeOutletId: form.workLocation === "OUTLET" ? form.homeOutletId || null : null,
+        onboardingComplete: form.onboardingComplete,
         isActive: form.isActive,
       };
       if (user.role !== "ADMIN") {
@@ -126,6 +141,7 @@ export default function ItEditUserPage() {
         <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">
           {error || "User tidak ditemukan"}
         </div>
+
       </div>
     );
   }
@@ -228,6 +244,13 @@ export default function ItEditUserPage() {
           ) : (
             <div />
           )}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Divisi pengajuan</span><select className="input" value={form.businessRole} onChange={e => setField("businessRole", e.target.value)} disabled={isAdminTarget}><option value="">Belum dipilih</option>{["MARKETING", "GA", "HRD", "IT", "ACCOUNTING", "AUDIT", "FINANCE", "IC", "OPERASIONAL"].map(role => <option key={role}>{role}</option>)}</select></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Penempatan</span><select className="input" value={form.workLocation} onChange={e => setField("workLocation", e.target.value)} disabled={isAdminTarget}><option value="">Belum dipilih</option><option value="HO">Head Office</option><option value="OUTLET">Outlet</option></select></label>
+          {form.workLocation === "OUTLET" && <label className="block"><span className="mb-1.5 block text-sm font-semibold">Outlet karyawan</span><select className="input" value={form.homeOutletId} onChange={e => setField("homeOutletId", e.target.value)} disabled={isAdminTarget}><option value="">Pilih outlet</option>{outlets.map(outlet => <option value={outlet.id} key={outlet.id}>{outlet.name}</option>)}</select></label>}
+          <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.onboardingComplete} onChange={e => setField("onboardingComplete", e.target.checked)} disabled={isAdminTarget} />Profil awal selesai</label>
         </div>
 
         <label className="flex items-center gap-2 text-sm font-semibold">

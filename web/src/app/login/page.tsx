@@ -39,6 +39,7 @@ function LoginForm() {
         sessionStorage.setItem("sli_post_login_portal", portal);
       }
       if (user.mustChangePassword) router.replace("/change-password");
+      else if (!user.onboardingComplete) router.replace("/setup-profile");
       else router.replace(pathForPortal(portal, user.role));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Login gagal");
