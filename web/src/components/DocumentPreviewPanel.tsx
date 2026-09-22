@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, FileText, Paperclip, Printer, Trash2, Upload } from "lucide-react";
 import { AttachmentPreview, AttachmentThumb } from "@/components/AttachmentPreview";
 import { RequestDocumentSheet } from "@/components/RequestDocumentSheet";
+import { WhatsAppShareButton } from "@/components/WhatsAppShareButton";
 import { api, ApiError, getToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { RequestRow } from "@/lib/types";
@@ -145,6 +146,7 @@ export function DocumentPreviewPanel({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <WhatsAppShareButton data={data} />
           <button type="button" disabled={busy || tab !== "form"} onClick={() => void downloadDocument("pdf")} className="btn-ghost inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold disabled:opacity-40"><Download size={15}/> PDF</button>
           <button type="button" disabled={busy || tab !== "form"} onClick={() => void downloadDocument("png")} className="btn-ghost inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-semibold disabled:opacity-40"><Download size={15}/> PNG</button>
           <a

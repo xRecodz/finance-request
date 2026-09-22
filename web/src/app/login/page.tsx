@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { pathForPortal, type Portal } from "@/lib/types";
+import { PasswordInput } from "@/components/PasswordInput";
 
 function parsePortal(value: string | null): Portal {
   if (value === "APPROVAL" || value === "IT") return value;
@@ -79,9 +80,8 @@ function LoginForm() {
           </label>
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Password</span>
-            <input
+            <PasswordInput
               className="input"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
