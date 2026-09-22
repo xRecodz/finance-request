@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 import { homePathForRole, pathForPortal, type Portal } from "@/lib/types";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function ChangePasswordPage() {
   const { user, loading, changePassword } = useAuth();
@@ -64,9 +65,8 @@ export default function ChangePasswordPage() {
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Password saat ini</span>
-            <input
+            <PasswordInput
               className="input"
-              type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               required
@@ -74,9 +74,8 @@ export default function ChangePasswordPage() {
           </label>
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Password baru</span>
-            <input
+            <PasswordInput
               className="input"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Minimal 6 karakter, huruf + angka"
@@ -85,9 +84,8 @@ export default function ChangePasswordPage() {
           </label>
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Konfirmasi password baru</span>
-            <input
+            <PasswordInput
               className="input"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
