@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -12,16 +13,20 @@ import type { RequestRow } from "@/lib/types";
 const MANAGER_PENDING = "MENUNGGU_MANAGER";
 const APPROVER_PENDING = "MENUNGGU_APPROVAL,DISETUJUI,LPJ_MENUNGGU";
 
-export default function ApprovalRequestsPage() {
+function ApprovalRequestsContent() {
   const { user } = useAuth();
-  const [view, setView] = useState<"manager" | "approver">("manager");
+  const searchParams = useSearchParams();
+  const requestedView = searchParams.get("view") === "approver" ? "approver" : "manager";
+  const [view, setView] = useState<"manager" | "approver">(requestedView);
   const isManager = view === "manager";
   const [rows, setRows] = useState<RequestRow[]>([]);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState(APPROVER_PENDING);
+  const [status, setStatus] = useState(
+    searchParams.get("status") || (requestedView === "manager" ? MANAGER_PENDING : APPROVER_PENDING)
+  );
   const [track, setTrack] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(searchParams.get("from") || "");
+  const [to, setTo] = useState(searchParams.get("to") || "");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -30,13 +35,20 @@ export default function ApprovalRequestsPage() {
 
   useEffect(() => {
     if (!user) return;
-    if (!user.canApprove && user.canDisburse) setView("approver");
-  }, [user]);
+    if (!user.canApprove && user.canDisburse) {
+      setView("approver");
+      if (!searchParams.get("status")) setStatus(APPROVER_PENDING);
+    } else if (user.canApprove && !user.canDisburse) {
+      setView("manager");
+      if (!searchParams.get("status")) setStatus(MANAGER_PENDING);
+    }
+  }, [searchParams, user]);
 
-  useEffect(() => {
-    setStatus(view === "manager" ? MANAGER_PENDING : APPROVER_PENDING);
+  function changeView(nextView: "manager" | "approver") {
+    setView(nextView);
+    setStatus(nextView === "manager" ? MANAGER_PENDING : APPROVER_PENDING);
     setPage(1);
-  }, [view]);
+  }
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -99,8 +111,8 @@ export default function ApprovalRequestsPage() {
       </div>
 
       {user?.canApprove && user?.canDisburse ? <div className="flex gap-2">
-        <button className={isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => setView("manager")}>Approval Manager</button>
-        <button className={!isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => setView("approver")}>Pencairan</button>
+        <button className={isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => changeView("manager")}>Approval Manager</button>
+        <button className={!isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => changeView("approver")}>Pencairan</button>
       </div> : null}
 
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
@@ -250,5 +262,13 @@ export default function ApprovalRequestsPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function ApprovalRequestsPage() {
+  return (
+    <Suspense fallback={<div className="panel rounded-2xl p-5 text-sm text-sli-muted">Memuat pengajuan...</div>}>
+      <ApprovalRequestsContent />
+    </Suspense>
   );
 }
