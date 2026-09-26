@@ -72,7 +72,11 @@ async function main() {
     const approved = await request(app).post(`/api/approvals/${row.id}/approve`).set("Authorization", `Bearer ${decisionToken}`).send({ approvedAmount: 20000 });
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     assert.equal(approved.body.data.status, "DISETUJUI");
-    const disbursed = await request(app).post(`/api/approvals/${row.id}/disburse`).set("Authorization", `Bearer ${officer.token}`).field("amount", "20000").field("disbursementRef", `TEST-${nip}`);
+    const disbursed = await request(app).post(`/api/approvals/${row.id}/disburse`)
+      .set("Authorization", `Bearer ${officer.token}`)
+      .field("amount", "20000")
+      .field("disbursementRef", `TEST-${nip}`)
+      .attach("proof", Buffer.from("%PDF-1.4\n% workflow test\n"), { filename: "bukti-transfer.pdf", contentType: "application/pdf" });
     assert.equal(disbursed.status, 200, JSON.stringify(disbursed.body));
     assert.equal(disbursed.body.data.status, "DICAIRKAN");
     const dashboard = await request(app).get("/api/dashboard/summary?as=requester").set("Authorization", `Bearer ${token}`);

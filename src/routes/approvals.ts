@@ -43,6 +43,41 @@ function canActAsApprover(user: AuthedRequest["user"], request: LoadedRequest) {
   return request.approverId === user!.id;
 }
 
+function assertCanManageDisbursement(user: AuthedRequest["user"], request: LoadedRequest): void {
+  if (user!.role === UserRole.ADMIN) return;
+  if (request.workflowVersion >= 2) {
+    if (request.disbursementOfficerId !== user!.id) {
+      throw new HttpError(403, "Hanya petugas pencairan yang ditugaskan dapat mengelola bukti transfer");
+    }
+    return;
+  }
+  if (user!.role === UserRole.MANAGER || !canActAsApprover(user, request)) {
+    throw new HttpError(403, "Anda tidak ditugaskan untuk mencairkan pengajuan ini");
+  }
+}
+
+async function saveTransferProof(request: LoadedRequest, userId: string, file: Express.Multer.File) {
+  const bucket = getBucketForKind(AttachmentKind.BUKTI_TRANSFER);
+  const key = buildObjectKey({
+    kind: AttachmentKind.BUKTI_TRANSFER,
+    requestNumber: request.number,
+    originalFilename: file.originalname,
+  });
+  await uploadToR2({ bucket, key, body: file.buffer, contentType: file.mimetype });
+  return prisma.attachment.create({
+    data: {
+      kind: AttachmentKind.BUKTI_TRANSFER,
+      requestId: request.id,
+      uploadedById: userId,
+      bucket,
+      objectKey: key,
+      originalFilename: file.originalname,
+      mimeType: file.mimetype,
+      fileSize: file.size,
+    },
+  });
+}
+
 /** Manager / Finance / Sekretariat hanya boleh menyentuh pengajuan di tahap mereka. */
 async function findAssignedRequest(id: string, user: AuthedRequest["user"]) {
   const request = await prisma.request.findUnique({
@@ -320,13 +355,7 @@ approvalsRouter.post(
     const body = disburseSchema.parse(req.body);
     const request = await findAssignedRequest(req.params.id, req.user);
 
-    if (request.workflowVersion >= 2) {
-      if (req.user!.role !== UserRole.ADMIN && request.disbursementOfficerId !== req.user!.id) {
-        throw new HttpError(403, "Hanya petugas pencairan yang ditugaskan dapat mencairkan");
-      }
-    } else if (req.user!.role === UserRole.MANAGER || !canActAsApprover(req.user, request)) {
-      throw new HttpError(403, "Anda tidak ditugaskan untuk mencairkan pengajuan ini");
-    }
+    assertCanManageDisbursement(req.user, request);
 
     if (request.status !== RequestStatus.DISETUJUI) {
       throw new HttpError(409, "Dana hanya bisa dicairkan untuk pengajuan yang sudah disetujui");
@@ -340,27 +369,8 @@ approvalsRouter.post(
     lpjDueDate.setDate(lpjDueDate.getDate() + env.LPJ_DUE_DAYS);
 
     const file = req.file;
-    if (file) {
-      const bucket = getBucketForKind(AttachmentKind.BUKTI_TRANSFER);
-      const key = buildObjectKey({
-        kind: AttachmentKind.BUKTI_TRANSFER,
-        requestNumber: request.number,
-        originalFilename: file.originalname,
-      });
-      await uploadToR2({ bucket, key, body: file.buffer, contentType: file.mimetype });
-      await prisma.attachment.create({
-        data: {
-          kind: AttachmentKind.BUKTI_TRANSFER,
-          requestId: request.id,
-          uploadedById: req.user!.id,
-          bucket,
-          objectKey: key,
-          originalFilename: file.originalname,
-          mimeType: file.mimetype,
-          fileSize: file.size,
-        },
-      });
-    }
+    if (!file) throw new HttpError(400, "Bukti transfer wajib dilampirkan sebelum menandai sudah ditransfer");
+    await saveTransferProof(request, req.user!.id, file);
 
     const updated = await prisma.$transaction(async (tx) => {
       const claimed = await tx.request.updateMany({
@@ -411,5 +421,66 @@ approvalsRouter.post(
     });
 
     res.json({ data: serializeRequestDetail(updated) });
+  })
+);
+
+/** Pemulihan untuk transaksi lama yang sudah dicairkan tetapi bukti transfernya belum tersimpan. */
+approvalsRouter.post(
+  "/:id/transfer-proof",
+  upload.single("proof"),
+  asyncHandler<AuthedRequest>(async (req, res) => {
+    const request = await findAssignedRequest(req.params.id, req.user);
+    assertCanManageDisbursement(req.user, request);
+
+    const allowedStatuses: RequestStatus[] = [
+      RequestStatus.DICAIRKAN,
+      RequestStatus.LPJ_MENUNGGU,
+      RequestStatus.LPJ_DITOLAK,
+      RequestStatus.SELESAI,
+    ];
+    if (!allowedStatuses.includes(request.status)) {
+      throw new HttpError(409, "Perbaikan bukti transfer hanya tersedia setelah dana dicairkan");
+    }
+    const file = req.file;
+    if (!file) throw new HttpError(400, "Pilih file bukti transfer terlebih dahulu");
+
+    const existing = await prisma.attachment.count({
+      where: { requestId: request.id, kind: AttachmentKind.BUKTI_TRANSFER },
+    });
+    if (existing > 0) {
+      throw new HttpError(409, "Bukti transfer sudah terlampir pada pengajuan ini");
+    }
+
+    await saveTransferProof(request, req.user!.id, file);
+    await prisma.approvalLog.create({
+      data: {
+        requestId: request.id,
+        actorId: req.user!.id,
+        action: "UPLOAD_TRANSFER_PROOF",
+        fromStatus: request.status,
+        toStatus: request.status,
+        note: `Bukti transfer dilengkapi: ${file.originalname}`,
+      },
+    });
+    logActivity({
+      actorId: req.user!.id,
+      action: "UPLOAD_TRANSFER_PROOF",
+      entity: "Request",
+      entityId: request.id,
+      detail: request.number,
+      ip: req.ip,
+    });
+    notify({
+      userId: request.requesterId,
+      title: "Bukti transfer telah dilengkapi",
+      body: `Bukti transfer untuk ${request.number} sudah tersedia.`,
+      requestId: request.id,
+    });
+
+    const updated = await prisma.request.findUnique({
+      where: { id: request.id },
+      include: requestDetailInclude,
+    });
+    res.status(201).json({ data: serializeRequestDetail(updated!) });
   })
 );

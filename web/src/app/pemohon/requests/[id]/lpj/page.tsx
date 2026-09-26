@@ -153,7 +153,7 @@ export default function LpjPage() {
             className="input"
             type="file"
             multiple
-            accept=".jpg,.jpeg,.png,.webp,.pdf"
+            accept=".jpg,.jpeg,.png,.webp,.heic,.pdf,image/jpeg,image/png,image/webp,image/heic,application/pdf"
             onChange={(e) => setFiles(e.target.files)}
           />
         </label>

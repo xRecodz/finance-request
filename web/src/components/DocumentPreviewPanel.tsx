@@ -210,7 +210,7 @@ export function DocumentPreviewPanel({
                   type="file"
                   multiple
                   className="hidden"
-                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.heic,application/pdf,image/jpeg,image/png,image/webp,image/heic"
                   onChange={(e) => void uploadFiles(e.target.files)}
                 />
                 <button

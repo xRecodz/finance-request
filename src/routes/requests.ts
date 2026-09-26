@@ -117,8 +117,17 @@ async function destinationFor(categoryId: string | null | undefined, preferred?:
   return destination;
 }
 
-export function skipsManagerApproval(track: ApproverTrack, categoryCode?: string | null): boolean {
-  return track === ApproverTrack.DIREKTUR || categoryCode === "OPEN";
+export function skipsManagerApproval(
+  track: ApproverTrack,
+  categoryCode?: string | null,
+  requesterId?: string,
+  managerId?: string
+): boolean {
+  return (
+    track === ApproverTrack.DIREKTUR ||
+    categoryCode === "OPEN" ||
+    Boolean(requesterId && managerId && requesterId === managerId)
+  );
 }
 
 /** Sekretariat dan Opening Outlet langsung ke petugas; pengajuan lain melalui manager. */
@@ -155,7 +164,17 @@ async function resolveSubmitAssignment(params: {
     where: { id: params.requesterId },
     select: { businessRole: true, homeOutletId: true },
   });
-  const manager = await resolveManagerForBusinessRole(requester?.businessRole, requester?.homeOutletId, params.requesterId);
+  const manager = await resolveManagerForBusinessRole(requester?.businessRole, requester?.homeOutletId);
+  if (skipsManagerApproval(params.track, category?.code, params.requesterId, manager.id)) {
+    return {
+      managerId: null,
+      disbursementOfficerId: officer.id,
+      status: RequestStatus.MENUNGGU_APPROVAL,
+      notifyUserId: officer.id,
+      submitNote: "Pengajuan manager dikirim langsung ke Finance tanpa self approval",
+      notifyTitle: "Pengajuan manager menunggu approval Finance",
+    };
+  }
   return {
     managerId: manager.id,
     disbursementOfficerId: officer.id,

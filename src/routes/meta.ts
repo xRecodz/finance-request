@@ -36,7 +36,11 @@ metaRouter.get(
     const role = String(req.query.role || "");
     const outletId = typeof req.query.outletId === "string" ? req.query.outletId : null;
     try {
-      const manager = await resolveManagerForBusinessRole(role, outletId, req.user!.id);
+      const manager = await resolveManagerForBusinessRole(role, outletId);
+      if (manager.id === req.user!.id) {
+        res.json({ data: null, message: "Anda manager divisi ini; pengajuan Finance langsung ke petugas approval" });
+        return;
+      }
       res.json({ data: { id: manager.id, name: manager.name, nip: manager.nip } });
     } catch {
       res.json({ data: null, message: "Manager belum diatur untuk pilihan ini" });
