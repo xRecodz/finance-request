@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { requestBodySchema } from "./requests";
+import { ApproverTrack } from "@prisma/client";
+import { requestBodySchema, skipsManagerApproval } from "./requests";
 
 const base = { type: "DANA", track: "FINANCE", destination: "HO" };
 
@@ -47,5 +48,19 @@ describe("validasi pengajuan", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.items[0]).toMatchObject({ quantity: 2, unitPrice: 10000 });
+  });
+});
+
+describe("jalur approval manager", () => {
+  it("melewati manager untuk semua pengajuan Sekretariat", () => {
+    expect(skipsManagerApproval(ApproverTrack.DIREKTUR, "IT")).toBe(true);
+  });
+
+  it("melewati manager untuk kategori Opening Outlet", () => {
+    expect(skipsManagerApproval(ApproverTrack.FINANCE, "OPEN")).toBe(true);
+  });
+
+  it("tetap melalui manager untuk pengajuan Finance lainnya", () => {
+    expect(skipsManagerApproval(ApproverTrack.FINANCE, "IT")).toBe(false);
   });
 });

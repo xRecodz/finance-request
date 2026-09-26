@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { RequestForm } from "@/components/RequestForm";
 import { api, ApiError } from "@/lib/api";
 import type { RequestRow } from "@/lib/types";
+import { uploadRequestAttachments } from "@/lib/requestAttachments";
 
 const EDITABLE = new Set(["DRAFT", "REVISI"]);
 
@@ -46,11 +47,16 @@ export default function EditRequestPage() {
     <RequestForm
       mode="edit"
       initial={data}
-      onSave={async (payload) => {
+      onSave={async (payload, submitNow, files) => {
+        const mustUploadBeforeSubmit = files.length > 0;
         await api(`/api/requests/${data.id}`, {
           method: "PATCH",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, submit: mustUploadBeforeSubmit ? false : submitNow }),
         });
+        await uploadRequestAttachments(data.id, files);
+        if (submitNow && mustUploadBeforeSubmit) {
+          await api(`/api/requests/${data.id}/submit`, { method: "POST" });
+        }
         router.replace(`/pemohon/requests/${data.id}`);
       }}
     />

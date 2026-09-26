@@ -51,7 +51,7 @@ function toDateInput(value?: string | null) {
 type Props = {
   mode: "create" | "edit";
   initial?: RequestRow;
-  onSave: (payload: Record<string, unknown>, submitNow: boolean) => Promise<void>;
+  onSave: (payload: Record<string, unknown>, submitNow: boolean, files: File[]) => Promise<void>;
 };
 
 export function RequestForm({ mode, initial, onSave }: Props) {
@@ -83,6 +83,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
         }))
       : [emptyItem()]
   );
+  const [reimbursementFiles, setReimbursementFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -136,6 +137,9 @@ export function RequestForm({ mode, initial, onSave }: Props) {
 
   const total = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
   const isRevisi = initial?.status === "REVISI";
+  const existingProofs = (initial?.attachments || []).filter((file) => file.kind === "PENDUKUNG");
+  const selectedCategory = categories.find((category) => category.id === categoryId);
+  const skipsManager = track === "DIREKTUR" || selectedCategory?.code === "OPEN";
 
   function updateItem(index: number, patch: Partial<RequestItem>) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
@@ -194,7 +198,15 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           400
         );
       }
-      await onSave(buildPayload(submitNow, resolved), submitNow);
+      if (
+        submitNow &&
+        type === "REIMBURSEMENT" &&
+        existingProofs.length === 0 &&
+        reimbursementFiles.length === 0
+      ) {
+        throw new ApiError("Bukti pembayaran wajib diunggah untuk reimbursement", 400);
+      }
+      await onSave(buildPayload(submitNow, resolved), submitNow, reimbursementFiles);
     } catch (err) {
       setError(formError(err));
     } finally {
@@ -216,7 +228,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </h1>
           <p className="text-sli-muted">
             {mode === "create"
-              ? "Isi detail permohonan dan item. Semua jalur diperiksa manager sebelum pencairan."
+              ? "Isi detail permohonan dan item. Sekretariat dan Opening Outlet langsung ke petugas approval."
               : `${initial?.number || ""} — ubah data lalu simpan draft atau kirim ulang.`}
           </p>
         </div>
@@ -232,7 +244,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
 
       {isRevisi && initial?.decisionNote ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <p className="font-semibold">Catatan revisi dari manager</p>
+          <p className="font-semibold">Catatan revisi dari approver</p>
           <p className="mt-1 whitespace-pre-wrap">{initial.decisionNote}</p>
         </div>
       ) : null}
@@ -297,7 +309,9 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </select>
           <p className="mt-1 text-xs text-sli-muted">
             {track === "DIREKTUR"
-              ? "Setelah manager menyetujui, Sekretariat mencairkan pengajuan."
+              ? "Pengajuan langsung masuk ke Sekretariat tanpa approval manager."
+              : selectedCategory?.code === "OPEN"
+                ? "Opening Outlet langsung masuk ke Finance tanpa approval manager."
               : dest === "OUTLET"
                 ? "Setelah manager menyetujui, Finance Outlet mencairkan pengajuan."
                 : "Setelah manager menyetujui, Finance Head Office mencairkan pengajuan."}
@@ -347,6 +361,39 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           />
         </label>
       </div>
+
+      {type === "REIMBURSEMENT" ? (
+        <div className="panel rounded-2xl p-5">
+          <h2 className="font-semibold">Bukti reimbursement</h2>
+          <p className="mt-1 text-sm text-sli-muted">
+            Unggah nota, struk, invoice, atau bukti pembayaran. Wajib sebelum pengajuan dikirim.
+          </p>
+          <label className="mt-4 block">
+            <span className="mb-1.5 block text-sm font-semibold">File bukti (JPG, PNG, WEBP, HEIC, atau PDF)</span>
+            <input
+              className="input file:mr-3 file:rounded-lg file:border-0 file:bg-sli-red-soft file:px-3 file:py-1.5 file:font-semibold file:text-sli-red"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
+              multiple
+              required={existingProofs.length === 0}
+              onChange={(event) => setReimbursementFiles(Array.from(event.target.files || []))}
+            />
+          </label>
+          {existingProofs.length > 0 ? (
+            <div className="mt-3 text-sm">
+              <p className="font-semibold text-emerald-700">Bukti yang sudah tersimpan:</p>
+              <ul className="mt-1 list-inside list-disc text-sli-muted">
+                {existingProofs.map((file) => <li key={file.id}>{file.originalFilename}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          {reimbursementFiles.length > 0 ? (
+            <p className="mt-2 text-sm text-sli-muted">
+              {reimbursementFiles.length} file baru dipilih: {reimbursementFiles.map((file) => file.name).join(", ")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="panel grid gap-4 rounded-2xl p-5 md:grid-cols-3">
         <h2 className="md:col-span-3 font-semibold">Rekening pencairan (opsional)</h2>
@@ -458,7 +505,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
 
       <div className="panel rounded-2xl p-4 text-sm">
-        <p><strong>Manager:</strong> {managerName}</p>
+        <p><strong>Manager:</strong> {skipsManager ? "Tidak diperlukan untuk jalur ini" : managerName}</p>
         <p className="mt-1"><strong>Petugas pencairan:</strong> {officerName}</p>
       </div>
 
