@@ -32,6 +32,13 @@ export default function ApprovalDashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [pending, setPending] = useState<RequestRow[]>([]);
 
+  const missingLpjParams = new URLSearchParams({
+    view,
+    status: "DICAIRKAN",
+  });
+  if (from) missingLpjParams.set("from", from);
+  if (to) missingLpjParams.set("to", to);
+
   useEffect(() => {
     if (user && !user.canApprove && user.canDisburse) setView("approver");
   }, [user]);
@@ -86,9 +93,21 @@ export default function ApprovalDashboard() {
         <button className={!isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => setView("approver")}>Pencairan</button>
       </div> : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Masuk" value={String(summary?.cards.totalRequests ?? "—")} />
         <StatCard label="Pendingan" value={String(summary?.cards.pending ?? "—")} hint="Perlu tindakan" />
+        <Link
+          href={`/approval/requests?${missingLpjParams.toString()}`}
+          className="rounded-2xl outline-none ring-sli-red transition hover:-translate-y-0.5 focus-visible:ring-2"
+          aria-label="Lihat pengajuan yang belum mengirim LPJ"
+        >
+          <StatCard
+            label="Belum LPJ"
+            value={String(summary?.cards.missingLpj ?? "—")}
+            hint="Sudah dicairkan, belum kirim LPJ"
+            accent="ink"
+          />
+        </Link>
         <StatCard
           label="Sudah Dicairkan"
           value={String(summary?.cards.disbursedCount ?? "—")}

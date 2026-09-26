@@ -76,7 +76,7 @@ dashboardRouter.get(
         ? PENDING_MANAGER_STATUSES
         : [...PENDING_MANAGER_STATUSES, ...PENDING_APPROVAL_STATUSES];
 
-    const [byStatus, amountAgg, pendingCount, historyPeers] = await Promise.all([
+    const [byStatus, amountAgg, pendingCount, missingLpjCount, historyPeers] = await Promise.all([
       prisma.request.groupBy({
         by: ["status"],
         where,
@@ -96,6 +96,12 @@ dashboardRouter.get(
         where: {
           ...where,
           status: { in: pendingStatuses },
+        },
+      }),
+      prisma.request.count({
+        where: {
+          ...where,
+          status: RequestStatus.DICAIRKAN,
         },
       }),
       !asRequester &&
@@ -200,6 +206,7 @@ dashboardRouter.get(
         cards: {
           totalRequests: byStatus.reduce((s, r) => s + r._count._all, 0),
           pending: pendingCount,
+          missingLpj: missingLpjCount,
           disbursedCount: amountAgg._count._all,
           disbursedNominal,
         },

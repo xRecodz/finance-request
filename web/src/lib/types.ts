@@ -145,6 +145,7 @@ export type DashboardSummary = {
   cards: {
     totalRequests: number;
     pending: number;
+    missingLpj: number;
     disbursedCount: number;
     disbursedNominal: number;
   };
