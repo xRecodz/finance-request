@@ -63,4 +63,8 @@ describe("jalur approval manager", () => {
   it("tetap melalui manager untuk pengajuan Finance lainnya", () => {
     expect(skipsManagerApproval(ApproverTrack.FINANCE, "IT")).toBe(false);
   });
+
+  it("melewati self approval saat manager membuat pengajuan sendiri", () => {
+    expect(skipsManagerApproval(ApproverTrack.FINANCE, "GA", "user-sari", "user-sari")).toBe(true);
+  });
 });

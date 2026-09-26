@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { AlertTriangle, FileUp, Upload } from "lucide-react";
 import { DocumentPreviewPanel } from "@/components/DocumentPreviewPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
@@ -18,6 +19,7 @@ export default function ApprovalDetailPage() {
   const [disbursementRef, setDisbursementRef] = useState("");
   const [disbursementAmount, setDisbursementAmount] = useState(0);
   const [proof, setProof] = useState<File | null>(null);
+  const [missingProof, setMissingProof] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -43,8 +45,10 @@ export default function ApprovalDetailPage() {
       }
       await load();
       setNote("");
+      return true;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Aksi gagal");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -77,12 +81,27 @@ export default function ApprovalDetailPage() {
 
   async function onDisburse(e: FormEvent) {
     e.preventDefault();
+    if (!proof) {
+      setError("Bukti transfer wajib dipilih sebelum menandai sudah ditransfer");
+      return;
+    }
     const fd = new FormData();
     if (disbursementRef) fd.append("disbursementRef", disbursementRef);
     fd.append("amount", String(disbursementAmount));
     if (note) fd.append("note", note);
     if (proof) fd.append("proof", proof);
-    await act(`/api/approvals/${params.id}/disburse`, fd, true);
+    if (await act(`/api/approvals/${params.id}/disburse`, fd, true)) setProof(null);
+  }
+
+  async function onUploadMissingProof(e: FormEvent) {
+    e.preventDefault();
+    if (!missingProof) {
+      setError("Pilih file bukti transfer terlebih dahulu");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("proof", missingProof);
+    if (await act(`/api/approvals/${params.id}/transfer-proof`, fd, true)) setMissingProof(null);
   }
 
   async function onVerifyLpj(approve: boolean) {
@@ -115,6 +134,11 @@ export default function ApprovalDetailPage() {
   const showFinanceDecision = data.status === "MENUNGGU_APPROVAL" && !isPureManager && assignedOfficer;
   const showDisburse = data.status === "DISETUJUI" && assignedOfficer;
   const showLpjVerify = data.status === "LPJ_MENUNGGU" && data.lpj && assignedOfficer;
+  const hasTransferProof = (data.attachments || []).some((file) => file.kind === "BUKTI_TRANSFER");
+  const showMissingTransferProof =
+    assignedOfficer &&
+    ["DICAIRKAN", "LPJ_MENUNGGU", "LPJ_DITOLAK", "SELESAI"].includes(data.status) &&
+    !hasTransferProof;
 
   return (
     <div className="space-y-5">
@@ -243,14 +267,47 @@ export default function ApprovalDetailPage() {
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
-          <input
-            className="input"
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp,.pdf"
-            onChange={(e) => setProof(e.target.files?.[0] || null)}
-          />
+          <label className="block rounded-xl border-2 border-dashed border-sli-red/35 bg-sli-red-soft/40 p-4">
+            <span className="flex items-center gap-2 font-semibold text-sli-red">
+              <Upload size={19} /> Bukti transfer (wajib)
+            </span>
+            <span className="mt-1 block text-xs text-sli-muted">JPG, PNG, WEBP, HEIC, atau PDF. Pastikan file benar sebelum menyelesaikan transfer.</span>
+            <input
+              className="input mt-3 bg-white"
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp,.heic,.pdf,image/jpeg,image/png,image/webp,image/heic,application/pdf"
+              required
+              onChange={(e) => setProof(e.target.files?.[0] || null)}
+            />
+            {proof ? <span className="mt-2 block text-xs font-semibold text-emerald-700">Dipilih: {proof.name}</span> : null}
+          </label>
           <button type="submit" disabled={busy} className="btn-primary rounded-xl px-4 py-2 text-sm font-semibold">
-            Tandai Sudah Ditransfer
+            <span className="inline-flex items-center gap-2"><FileUp size={17} /> Tandai Sudah Ditransfer</span>
+          </button>
+        </form>
+      ) : null}
+
+      {showMissingTransferProof ? (
+        <form onSubmit={onUploadMissingProof} className="panel space-y-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 shrink-0 text-amber-700" size={22} />
+            <div>
+              <h2 className="font-semibold text-amber-950">Bukti transfer belum dilampirkan</h2>
+              <p className="mt-1 text-sm text-amber-900">Dana sudah ditandai dicairkan. Lengkapi bukti agar dokumen pengajuan dan audit transaksi lengkap.</p>
+            </div>
+          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold">Perbaiki / upload bukti transfer</span>
+            <input
+              className="input bg-white"
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp,.heic,.pdf,image/jpeg,image/png,image/webp,image/heic,application/pdf"
+              required
+              onChange={(e) => setMissingProof(e.target.files?.[0] || null)}
+            />
+          </label>
+          <button type="submit" disabled={busy} className="btn-primary inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold">
+            <Upload size={17} /> Upload Bukti Transfer
           </button>
         </form>
       ) : null}
