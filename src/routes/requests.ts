@@ -117,18 +117,45 @@ async function destinationFor(categoryId: string | null | undefined, preferred?:
   return destination;
 }
 
-/** Seluruh pengajuan baru: manager divisi dahulu, petugas pencairan kemudian. */
+export function skipsManagerApproval(track: ApproverTrack, categoryCode?: string | null): boolean {
+  return track === ApproverTrack.DIREKTUR || categoryCode === "OPEN";
+}
+
+/** Sekretariat dan Opening Outlet langsung ke petugas; pengajuan lain melalui manager. */
 async function resolveSubmitAssignment(params: {
   track: ApproverTrack;
   destination: Destination;
   requesterId: string;
+  categoryId?: string | null;
 }) {
+  const [category, officer] = await Promise.all([
+    params.categoryId
+      ? prisma.category.findUnique({ where: { id: params.categoryId }, select: { code: true } })
+      : null,
+    resolveDisbursementOfficer(params.track, params.destination),
+  ]);
+
+  if (skipsManagerApproval(params.track, category?.code)) {
+    const isSecretariat = params.track === ApproverTrack.DIREKTUR;
+    return {
+      managerId: null,
+      disbursementOfficerId: officer.id,
+      status: RequestStatus.MENUNGGU_APPROVAL,
+      notifyUserId: officer.id,
+      submitNote: isSecretariat
+        ? "Pengajuan dikirim langsung ke Sekretariat tanpa approval manager"
+        : "Pengajuan Opening Outlet dikirim langsung ke Finance tanpa approval manager",
+      notifyTitle: isSecretariat
+        ? "Pengajuan baru menunggu approval Sekretariat"
+        : "Pengajuan Opening Outlet menunggu approval Finance",
+    };
+  }
+
   const requester = await prisma.user.findUnique({
     where: { id: params.requesterId },
     select: { businessRole: true, homeOutletId: true },
   });
   const manager = await resolveManagerForBusinessRole(requester?.businessRole, requester?.homeOutletId, params.requesterId);
-  const officer = await resolveDisbursementOfficer(params.track, params.destination);
   return {
     managerId: manager.id,
     disbursementOfficerId: officer.id,
@@ -137,6 +164,16 @@ async function resolveSubmitAssignment(params: {
     submitNote: "Pengajuan dikirim ke manager departemen",
     notifyTitle: "Pengajuan baru menunggu approval manager",
   };
+}
+
+async function assertReimbursementProof(requestId: string, type: RequestType): Promise<void> {
+  if (type !== RequestType.REIMBURSEMENT) return;
+  const proofCount = await prisma.attachment.count({
+    where: { requestId, kind: AttachmentKind.PENDUKUNG },
+  });
+  if (proofCount === 0) {
+    throw new HttpError(400, "Bukti pembayaran wajib diunggah untuk pengajuan reimbursement");
+  }
 }
 
 async function findRequestOr404(id: string) {
@@ -368,6 +405,9 @@ requestsRouter.post(
 
     const { prepared, total } = computeItems(body.items);
     const submitting = body.submit;
+    if (submitting && body.type === RequestType.REIMBURSEMENT) {
+      throw new HttpError(400, "Simpan draft dan unggah bukti pembayaran sebelum mengirim reimbursement");
+    }
     const destination = await destinationFor(body.categoryId, body.destination, submitting);
     const officer = await resolveDisbursementOfficer(body.track, destination);
 
@@ -382,6 +422,7 @@ requestsRouter.post(
         track: body.track,
         destination,
         requesterId: user.id,
+        categoryId: body.categoryId,
       });
       managerId = assignment.managerId;
       submitStatus = assignment.status;
@@ -471,6 +512,7 @@ requestsRouter.patch(
 
     const { prepared, total } = computeItems(body.items);
     const submitting = body.submit;
+    if (submitting) await assertReimbursementProof(existing.id, body.type);
     const destination = await destinationFor(body.categoryId, body.destination, submitting);
     const officer = await resolveDisbursementOfficer(body.track, destination);
 
@@ -485,6 +527,7 @@ requestsRouter.patch(
         track: body.track,
         destination,
         requesterId: req.user!.id,
+        categoryId: body.categoryId,
       });
       managerId = assignment.managerId;
       submitStatus = assignment.status;
@@ -593,11 +636,13 @@ requestsRouter.post(
       })),
       submit: true,
     });
+    await assertReimbursementProof(existing.id, existing.type);
 
     const assignment = await resolveSubmitAssignment({
       track: existing.track,
       destination: await destinationFor(existing.categoryId, (existing.destination as Destination | null) ?? undefined),
       requesterId: req.user!.id,
+      categoryId: existing.categoryId,
     });
 
     const updated = await prisma.request.update({

@@ -11,8 +11,10 @@ async function main() {
   if (!process.env.DATABASE_URL?.includes("sl_finance_test")) throw new Error("Hanya boleh dijalankan pada sl_finance_test");
   const app = createApp();
   const category = await prisma.category.findFirst({ where: { kind: "STANDARD", isActive: true } });
+  const openingCategory = await prisma.category.findFirst({ where: { code: "OPEN", isActive: true } });
   const outlet = await prisma.category.findFirst({ where: { kind: "OUTLET", isActive: true } });
   assert(category, "Kategori HO tidak ada");
+  assert(openingCategory, "Kategori Opening Outlet tidak ada");
   assert(outlet, "Kategori outlet tidak ada");
   const person = async (nip: string) => {
     const user = await prisma.user.findUnique({ where: { nip } });
@@ -22,11 +24,12 @@ async function main() {
     return { user, token: signToken(auth) };
   };
   const scenarios = [
-    { role: "GA", track: "FINANCE", destination: "HO", managerNip: "1109.0.86.00052", officerNip: "1906.0.96.05580" },
-    { role: "IT", track: "DIREKTUR", destination: "HO", managerNip: "1511.1.77.00020", officerNip: "1109.0.86.00052" },
-    { role: "IT", track: "FINANCE", destination: "HO", managerNip: "1511.1.77.00020", officerNip: "1906.0.96.05580" },
-    { role: "HRD", track: "DIREKTUR", destination: "HO", managerNip: "1109.0.86.00052", officerNip: "1109.0.86.00052" },
-    { role: "OPERASIONAL", track: "FINANCE", destination: "OUTLET", managerNip: "1511.1.77.00020", officerNip: "1512.0.94.01171" },
+    { role: "GA", track: "FINANCE", destination: "HO", managerNip: "1109.0.86.00052", officerNip: "1906.0.96.05580", direct: false, opening: false },
+    { role: "IT", track: "DIREKTUR", destination: "HO", managerNip: "1511.1.77.00020", officerNip: "1109.0.86.00052", direct: true, opening: false },
+    { role: "IT", track: "FINANCE", destination: "HO", managerNip: "1511.1.77.00020", officerNip: "1906.0.96.05580", direct: false, opening: false },
+    { role: "HRD", track: "DIREKTUR", destination: "HO", managerNip: "1109.0.86.00052", officerNip: "1109.0.86.00052", direct: true, opening: false },
+    { role: "OPERASIONAL", track: "FINANCE", destination: "OUTLET", managerNip: "1511.1.77.00020", officerNip: "1512.0.94.01171", direct: false, opening: false },
+    { role: "OPERASIONAL", track: "FINANCE", destination: "HO", managerNip: "1511.1.77.00020", officerNip: "1906.0.96.05580", direct: true, opening: true },
   ] as const;
   await prisma.user.updateMany({ where: { nip: { in: [...new Set(scenarios.flatMap(item => [item.managerNip, item.officerNip]))] } }, data: { mustChangePassword: false, onboardingComplete: true } });
   const adminUser = await prisma.user.create({ data: { nip: `TEST-IT-${Date.now()}`, name: "Admin Uji", passwordHash: await hashPassword("Testing1234"), role: "IT", businessRole: "IT", workLocation: "HO", onboardingComplete: true, mustChangePassword: false } });
@@ -48,22 +51,25 @@ async function main() {
     assert(auth);
     const token = signToken(auth);
     const created = await request(app).post("/api/requests").set("Authorization", `Bearer ${token}`).send({
-      type: "DANA", track: scenario.track, destination: scenario.destination, categoryId: scenario.destination === "OUTLET" ? outlet.id : category.id,
+      type: "DANA", track: scenario.track, destination: scenario.destination,
+      categoryId: scenario.opening ? openingCategory.id : scenario.destination === "OUTLET" ? outlet.id : category.id,
       title: `Uji alur ${scenario.role}`, purpose: "Verifikasi alur pencairan",
       bankName: "Bank Uji", bankAccountNumber: "123456", bankAccountHolder: user.name,
       items: [{ name: "Barang uji", quantity: 2, unit: "pcs", unitPrice: 10000 }], submit: true,
     });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const row = created.body.data;
-    assert.equal(row.status, "MENUNGGU_MANAGER");
+    assert.equal(row.status, scenario.direct ? "MENUNGGU_APPROVAL" : "MENUNGGU_MANAGER");
     assert.equal(row.totalAmount, 20000);
-    assert.equal(row.manager.nip, scenario.managerNip);
+    if (scenario.direct) assert.equal(row.manager, null);
+    else assert.equal(row.manager.nip, scenario.managerNip);
     assert.equal(row.disbursementOfficer.nip, scenario.officerNip);
     const manager = await person(scenario.managerNip);
     const officer = await person(scenario.officerNip);
     const premature = await request(app).post(`/api/approvals/${row.id}/disburse`).set("Authorization", `Bearer ${officer.token}`).field("amount", "20000");
     assert.equal(premature.status, 409, JSON.stringify(premature.body));
-    const approved = await request(app).post(`/api/approvals/${row.id}/approve`).set("Authorization", `Bearer ${manager.token}`).send({ approvedAmount: 20000 });
+    const decisionToken = scenario.direct ? officer.token : manager.token;
+    const approved = await request(app).post(`/api/approvals/${row.id}/approve`).set("Authorization", `Bearer ${decisionToken}`).send({ approvedAmount: 20000 });
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     assert.equal(approved.body.data.status, "DISETUJUI");
     const disbursed = await request(app).post(`/api/approvals/${row.id}/disburse`).set("Authorization", `Bearer ${officer.token}`).field("amount", "20000").field("disbursementRef", `TEST-${nip}`);
@@ -72,7 +78,7 @@ async function main() {
     const dashboard = await request(app).get("/api/dashboard/summary?as=requester").set("Authorization", `Bearer ${token}`);
     assert.equal(dashboard.status, 200, JSON.stringify(dashboard.body));
     assert.equal(dashboard.body.data.cards.disbursedNominal, 20000);
-    console.log(`${scenario.role} -> ${scenario.track}: manager ${manager.user.nip}, pencairan ${officer.user.nip}, dashboard Rp20.000 OK`);
+    console.log(`${scenario.role} -> ${scenario.track}: ${scenario.direct ? "langsung" : `manager ${manager.user.nip}`}, pencairan ${officer.user.nip}, dashboard Rp20.000 OK`);
   }
 }
 
