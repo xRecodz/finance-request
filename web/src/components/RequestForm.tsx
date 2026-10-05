@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { OutletCombobox } from "@/components/OutletCombobox";
 import { api, ApiError } from "@/lib/api";
@@ -9,6 +9,7 @@ import { type CategoryMode, type SekretariatDest } from "@/lib/approverCategorie
 import { formatRupiah } from "@/lib/format";
 import type {
   ApproverTrack,
+  BusinessRoleOption,
   CategoryOption,
   RequestItem,
   RequestRow,
@@ -57,6 +58,8 @@ type Props = {
 export function RequestForm({ mode, initial, onSave }: Props) {
   const { user } = useAuth();
   const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [businessRole, setBusinessRole] = useState<BusinessRoleOption | null>(null);
+  const appliedRoleDefaults = useRef(false);
   const [track, setTrack] = useState<ApproverTrack>(initial?.track || "DIREKTUR");
   const [type, setType] = useState<string>(initial?.type || "DANA");
   /** Head Office | Outlet — label UI; mapping ke approver di belakang layar. */
@@ -91,6 +94,23 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     void api<{ data: CategoryOption[] }>("/api/meta/categories")
       .then(result => setCategories(result.data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!user?.businessRole) return;
+    void api<{ data: BusinessRoleOption[] }>("/api/meta/business-roles")
+      .then((result) => {
+        const configuredRole = result.data.find((role) => role.code === user.businessRole) || null;
+        setBusinessRole(configuredRole);
+        if (mode === "create" && configuredRole && !appliedRoleDefaults.current) {
+          appliedRoleDefaults.current = true;
+          setTrack(configuredRole.defaultTrack);
+          setDest(configuredRole.defaultDestination);
+          setCategoryId("");
+          setOutletQuery("");
+        }
+      })
+      .catch(() => {});
+  }, [mode, user?.businessRole]);
 
   useEffect(() => {
     if (!user?.businessRole) return;
@@ -505,7 +525,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
 
       <div className="panel rounded-2xl p-4 text-sm">
-        <p><strong>Manager:</strong> {skipsManager ? "Tidak diperlukan untuk jalur ini" : managerName}</p>
+        <p><strong>{businessRole?.supervisorLabel || "Manager"}:</strong> {skipsManager ? "Tidak diperlukan untuk jalur ini" : managerName}</p>
         <p className="mt-1"><strong>Petugas pencairan:</strong> {officerName}</p>
       </div>
 

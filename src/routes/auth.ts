@@ -9,7 +9,7 @@ import {
   verifyPassword,
 } from "../lib/auth";
 import { loadAuthUser } from "../lib/authUser";
-import { BUSINESS_ROLES } from "../lib/managerMap";
+import { assertActiveBusinessRole } from "../lib/businessRoles";
 import { resolveManagerForBusinessRole } from "../lib/manager";
 import { prisma } from "../lib/prisma";
 import { logActivity } from "../lib/activity";
@@ -170,7 +170,7 @@ authRouter.post(
 );
 
 const setupProfileSchema = z.object({
-  businessRole: z.enum(BUSINESS_ROLES),
+  businessRole: z.string().trim().min(2).max(40),
   workLocation: z.enum(["HO", "OUTLET"]),
   homeOutletId: z.string().optional().nullable(),
 });
@@ -181,6 +181,7 @@ authRouter.post(
   asyncHandler<AuthedRequest>(async (req, res) => {
     if (req.user!.mustChangePassword) throw new HttpError(403, "Ganti password terlebih dahulu");
     const body = setupProfileSchema.parse(req.body);
+    const businessRole = await assertActiveBusinessRole(body.businessRole);
     if (body.workLocation === "OUTLET") {
       if (!body.homeOutletId) throw new HttpError(400, "Pilih outlet asal");
       const outlet = await prisma.category.findUnique({ where: { id: body.homeOutletId } });
@@ -191,7 +192,7 @@ authRouter.post(
     const updated = await prisma.user.update({
       where: { id: req.user!.id },
       data: {
-        businessRole: body.businessRole,
+        businessRole,
         workLocation: body.workLocation,
         homeOutletId: body.workLocation === "OUTLET" ? body.homeOutletId : null,
         onboardingComplete: true,

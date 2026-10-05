@@ -183,3 +183,11 @@ export type CategoryOption = {
   name: string;
   kind?: "STANDARD" | "OUTLET";
 };
+
+export type BusinessRoleOption = {
+  code: string;
+  name: string;
+  supervisorLabel: string;
+  defaultTrack: ApproverTrack;
+  defaultDestination: "HO" | "OUTLET";
+};

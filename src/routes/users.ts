@@ -2,7 +2,7 @@ import { Router } from "express";
 import { ApproverTrack, CategoryKind, Prisma, UserRole, UserSource } from "@prisma/client";
 import { z } from "zod";
 import { getDefaultPasswordHash } from "../lib/defaultPassword";
-import { BUSINESS_ROLES } from "../lib/managerMap";
+import { assertActiveBusinessRole } from "../lib/businessRoles";
 import { logActivity } from "../lib/activity";
 import { prisma } from "../lib/prisma";
 import {
@@ -63,7 +63,7 @@ const createSchema = z
     phone: z.string().trim().optional().nullable(),
     position: z.string().trim().optional().nullable(),
     department: z.string().trim().optional().nullable(),
-    businessRole: z.enum(BUSINESS_ROLES).optional().nullable(),
+    businessRole: z.string().trim().min(2).max(40).optional().nullable(),
     workLocation: z.enum(["HO", "OUTLET"]).optional().nullable(),
     homeOutletId: z.string().optional().nullable(),
     onboardingComplete: z.boolean().optional(),
@@ -88,7 +88,7 @@ const patchSchema = z
     phone: z.string().trim().optional().nullable(),
     position: z.string().trim().optional().nullable(),
     department: z.string().trim().optional().nullable(),
-    businessRole: z.enum(BUSINESS_ROLES).optional().nullable(),
+    businessRole: z.string().trim().min(2).max(40).optional().nullable(),
     workLocation: z.enum(["HO", "OUTLET"]).optional().nullable(),
     homeOutletId: z.string().optional().nullable(),
     onboardingComplete: z.boolean().optional(),
@@ -188,7 +188,8 @@ usersRouter.post(
   asyncHandler<AuthedRequest>(async (req, res) => {
     const body = createSchema.parse(req.body);
     assertCanAssignRole(req.user!.role, body.role);
-    await validateProfile(body.onboardingComplete ?? false, body.businessRole, body.workLocation, body.homeOutletId);
+    const businessRole = body.businessRole ? await assertActiveBusinessRole(body.businessRole) : null;
+    await validateProfile(body.onboardingComplete ?? false, businessRole, body.workLocation, body.homeOutletId);
 
     const existing = await prisma.user.findUnique({ where: { nip: body.nip } });
     if (existing) throw new HttpError(409, "NIP sudah terdaftar");
@@ -202,7 +203,7 @@ usersRouter.post(
         phone: body.phone || null,
         position: body.position || null,
         department: body.department || null,
-        businessRole: body.businessRole || null,
+        businessRole,
         workLocation: body.workLocation || null,
         homeOutletId: body.workLocation === "OUTLET" ? body.homeOutletId || null : null,
         onboardingComplete: body.onboardingComplete ?? false,
@@ -244,8 +245,13 @@ usersRouter.patch(
     }
 
     const nextRole = body.role ?? existing.role;
+    const businessRole = body.businessRole === undefined
+      ? existing.businessRole
+      : body.businessRole
+        ? await assertActiveBusinessRole(body.businessRole)
+        : null;
     await validateProfile(body.onboardingComplete ?? existing.onboardingComplete,
-      body.businessRole === undefined ? existing.businessRole : body.businessRole,
+      businessRole,
       body.workLocation === undefined ? existing.workLocation : body.workLocation,
       body.workLocation === "HO" ? null : body.homeOutletId === undefined ? existing.homeOutletId : body.homeOutletId);
     if (body.role) assertCanAssignRole(req.user!.role, body.role);
@@ -266,7 +272,7 @@ usersRouter.patch(
         phone: body.phone === undefined ? undefined : body.phone || null,
         position: body.position === undefined ? undefined : body.position || null,
         department: body.department === undefined ? undefined : body.department || null,
-        businessRole: body.businessRole === undefined ? undefined : body.businessRole || null,
+        businessRole: body.businessRole === undefined ? undefined : businessRole,
         workLocation: body.workLocation,
         homeOutletId: body.workLocation === "HO" ? null : body.homeOutletId,
         onboardingComplete: body.onboardingComplete,

@@ -4,13 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
-import { pathForPortal, type Portal, type CategoryOption } from "@/lib/types";
-
-const ROLES = [
-  ["MARKETING", "Marketing"], ["IT", "IT"], ["ACCOUNTING", "Accounting"],
-  ["AUDIT", "Audit"], ["GA", "GA"], ["HRD", "HRD"],
-  ["FINANCE", "Finance"], ["IC", "IC"], ["OPERASIONAL", "Operasional"],
-] as const;
+import { pathForPortal, type Portal, type BusinessRoleOption, type CategoryOption } from "@/lib/types";
 
 export default function SetupProfilePage() {
   const { user, loading, setupProfile } = useAuth();
@@ -19,6 +13,7 @@ export default function SetupProfilePage() {
   const [workLocation, setWorkLocation] = useState<"HO" | "OUTLET">((user?.workLocation as "HO" | "OUTLET") || "HO");
   const [homeOutletId, setHomeOutletId] = useState(user?.homeOutletId || "");
   const [outlets, setOutlets] = useState<CategoryOption[]>([]);
+  const [roles, setRoles] = useState<BusinessRoleOption[]>([]);
   const [manager, setManager] = useState<string>("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -26,8 +21,13 @@ export default function SetupProfilePage() {
   useEffect(() => {
     if (!loading && !user) router.replace("/");
     else if (user?.mustChangePassword) router.replace("/change-password");
-    void api<{ data: CategoryOption[] }>("/api/meta/categories?kind=OUTLET")
-      .then((res) => setOutlets(res.data)).catch(() => {});
+    void Promise.all([
+      api<{ data: CategoryOption[] }>("/api/meta/categories?kind=OUTLET"),
+      api<{ data: BusinessRoleOption[] }>("/api/meta/business-roles"),
+    ]).then(([outletResult, roleResult]) => {
+      setOutlets(outletResult.data);
+      setRoles(roleResult.data);
+    }).catch(() => {});
   }, [loading, user, router]);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export default function SetupProfilePage() {
         <p className="mt-1 text-sm text-sli-muted">Pilihan ini menentukan manager untuk pengajuan Anda. Hak Approval dan Portal IT tetap diatur admin.</p></div>
       <label className="block"><span className="mb-1 block text-sm font-semibold">Divisi / role organisasi</span>
         <select className="input" value={businessRole} onChange={(e) => setBusinessRole(e.target.value)} required>
-          <option value="">Pilih divisi</option>{ROLES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+          <option value="">Pilih divisi</option>{roles.map((role) => <option key={role.code} value={role.code}>{role.name}</option>)}
         </select></label>
       <label className="block"><span className="mb-1 block text-sm font-semibold">Penempatan asal</span>
         <select className="input" value={workLocation} onChange={(e) => {setWorkLocation(e.target.value as "HO" | "OUTLET"); setHomeOutletId("");}}>

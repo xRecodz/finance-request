@@ -3,7 +3,8 @@ import { ApproverTrack, CategoryKind, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { hashPassword } from "../lib/auth";
-import { BUSINESS_ROLES, BUSINESS_ROLE_MANAGER_NIPS } from "../lib/managerMap";
+import { BUSINESS_ROLE_MANAGER_NIPS } from "../lib/managerMap";
+import { normalizeBusinessRoleCode } from "../lib/businessRoles";
 import { AuthedRequest, requireAuth, requirePasswordChanged, requireRoles } from "../middleware/auth";
 import { HttpError, asyncHandler } from "../middleware/errorHandler";
 import { logActivity } from "../lib/activity";
@@ -64,26 +65,84 @@ const defaultOfficers: Record<string, string> = {
 };
 
 settingsRouter.get("/", asyncHandler<AuthedRequest>(async (_req, res) => {
-  const [managerRoutes, payoutRoutes, users] = await Promise.all([
+  const [managerRoutes, payoutRoutes, users, businessRoles, categories] = await Promise.all([
     prisma.managerRoute.findMany({ include: { manager: { select: { id: true, nip: true, name: true, isActive: true } } } }),
     prisma.disbursementRoute.findMany({ include: { officer: { select: { id: true, nip: true, name: true, isActive: true } } } }),
     prisma.user.findMany({ where: { nip: { in: [...new Set([...Object.values(BUSINESS_ROLE_MANAGER_NIPS), ...Object.values(defaultOfficers)])] } }, select: { id: true, nip: true, name: true, isActive: true } }),
+    prisma.businessRole.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+    prisma.category.findMany({ orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { name: "asc" }] }),
   ]);
   const byNip = new Map(users.map(user => [user.nip, user]));
-  const managerData = BUSINESS_ROLES.map(role => {
-    const route = managerRoutes.find(item => item.businessRole === role && item.outletCategoryId === null && item.isActive);
-    return { businessRole: role, manager: route?.manager || byNip.get(BUSINESS_ROLE_MANAGER_NIPS[role]) || null, configured: Boolean(route) };
+  const managerData = businessRoles.map(role => {
+    const route = managerRoutes.find(item => item.businessRole === role.code && item.outletCategoryId === null && item.isActive);
+    return { ...role, businessRole: role.code, manager: route?.manager || byNip.get(BUSINESS_ROLE_MANAGER_NIPS[role.code]) || null, configured: Boolean(route) };
   });
   const payoutData = Object.entries(defaultOfficers).map(([key, nip]) => {
     const [track, destination] = key.split(":");
     const route = payoutRoutes.find(item => item.track === track && item.destination === destination && item.isActive);
     return { track, destination, officer: route?.officer || byNip.get(nip) || null, configured: Boolean(route) };
   });
-  res.json({ data: { managerRoutes: managerData, payoutRoutes: payoutData, outletOverrides: managerRoutes.filter(item => item.outletCategoryId !== null), defaultPasswordConfigured: Boolean(await prisma.systemSetting.findUnique({ where: { key: "defaultPasswordHash" } })) } });
+  res.json({ data: { businessRoles, categories, managerRoutes: managerData, payoutRoutes: payoutData, outletOverrides: managerRoutes.filter(item => item.outletCategoryId !== null), defaultPasswordConfigured: Boolean(await prisma.systemSetting.findUnique({ where: { key: "defaultPasswordHash" } })) } });
+}));
+
+const businessRoleCreateSchema = z.object({
+  code: z.string().trim().min(2).max(40),
+  name: z.string().trim().min(2).max(80),
+  supervisorLabel: z.string().trim().min(2).max(40).default("Manager"),
+  defaultTrack: z.nativeEnum(ApproverTrack).default(ApproverTrack.FINANCE),
+  defaultDestination: z.enum(["HO", "OUTLET"]).default("HO"),
+  sortOrder: z.coerce.number().int().min(0).max(9999).default(500),
+});
+
+settingsRouter.post("/business-roles", asyncHandler<AuthedRequest>(async (req, res) => {
+  const body = businessRoleCreateSchema.parse(req.body);
+  const code = normalizeBusinessRoleCode(body.code);
+  if (!/^[A-Z][A-Z0-9_]*$/.test(code)) throw new HttpError(400, "Kode divisi hanya boleh huruf, angka, dan garis bawah");
+  const created = await prisma.businessRole.create({ data: { ...body, code } });
+  logActivity({ actorId: req.user!.id, action: "CREATE_BUSINESS_ROLE", entity: "BusinessRole", entityId: created.id, detail: `${created.code} — ${created.name}`, ip: req.ip });
+  res.status(201).json({ data: created, message: `Divisi ${created.name} ditambahkan` });
+}));
+
+settingsRouter.patch("/business-roles/:id", asyncHandler<AuthedRequest>(async (req, res) => {
+  const body = businessRoleCreateSchema.omit({ code: true }).extend({ isActive: z.boolean().optional() }).parse(req.body);
+  const existing = await prisma.businessRole.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw new HttpError(404, "Divisi tidak ditemukan");
+  const updated = await prisma.businessRole.update({ where: { id: existing.id }, data: body });
+  logActivity({ actorId: req.user!.id, action: "UPDATE_BUSINESS_ROLE", entity: "BusinessRole", entityId: updated.id, detail: `${updated.code} — ${updated.name}`, ip: req.ip });
+  res.json({ data: updated, message: `Divisi ${updated.name} diperbarui` });
+}));
+
+const categorySchema = z.object({
+  code: z.string().trim().min(2).max(40),
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(191).optional().nullable(),
+  kind: z.nativeEnum(CategoryKind),
+  sortOrder: z.coerce.number().int().min(0).max(9999).default(500),
+});
+
+settingsRouter.post("/categories", asyncHandler<AuthedRequest>(async (req, res) => {
+  const body = categorySchema.parse(req.body);
+  const code = body.code.toUpperCase().replace(/\s+/g, "_");
+  if (!/^[A-Z][A-Z0-9_]*$/.test(code)) throw new HttpError(400, "Kode kategori hanya boleh huruf, angka, dan garis bawah");
+  const created = await prisma.category.create({ data: { ...body, code, description: body.description || null } });
+  logActivity({ actorId: req.user!.id, action: "CREATE_CATEGORY", entity: "Category", entityId: created.id, detail: `${created.code} — ${created.name}`, ip: req.ip });
+  res.status(201).json({ data: created, message: `Kategori ${created.name} ditambahkan` });
+}));
+
+settingsRouter.patch("/categories/:id", asyncHandler<AuthedRequest>(async (req, res) => {
+  const body = categorySchema.omit({ code: true }).extend({ isActive: z.boolean().optional() }).parse(req.body);
+  const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw new HttpError(404, "Kategori tidak ditemukan");
+  const updated = await prisma.category.update({ where: { id: existing.id }, data: { ...body, description: body.description || null } });
+  logActivity({ actorId: req.user!.id, action: "UPDATE_CATEGORY", entity: "Category", entityId: updated.id, detail: `${updated.code} — ${updated.name}`, ip: req.ip });
+  res.json({ data: updated, message: `Kategori ${updated.name} diperbarui` });
 }));
 
 settingsRouter.put("/manager-route", asyncHandler<AuthedRequest>(async (req, res) => {
-  const body = z.object({ businessRole: z.enum([...BUSINESS_ROLES] as [string, ...string[]]), outletCategoryId: z.string().nullable().optional(), managerNip: z.string().trim().min(3) }).parse(req.body);
+  const body = z.object({ businessRole: z.string().trim().min(2).max(40), outletCategoryId: z.string().nullable().optional(), managerNip: z.string().trim().min(3) }).parse(req.body);
+  const businessRole = normalizeBusinessRoleCode(body.businessRole);
+  const role = await prisma.businessRole.findUnique({ where: { code: businessRole } });
+  if (!role?.isActive) throw new HttpError(400, "Divisi tidak aktif atau tidak ditemukan");
   const manager = await prisma.user.findUnique({ where: { nip: body.managerNip } });
   if (!manager?.isActive) throw new HttpError(400, "NIP manager tidak ditemukan atau tidak aktif");
   if (body.outletCategoryId) {
@@ -91,11 +150,11 @@ settingsRouter.put("/manager-route", asyncHandler<AuthedRequest>(async (req, res
     if (!outlet?.isActive || outlet.kind !== CategoryKind.OUTLET) throw new HttpError(400, "Outlet tidak valid");
   }
   await prisma.$transaction(async tx => {
-    await tx.managerRoute.updateMany({ where: { businessRole: body.businessRole, outletCategoryId: body.outletCategoryId || null }, data: { isActive: false } });
-    await tx.managerRoute.create({ data: { businessRole: body.businessRole, outletCategoryId: body.outletCategoryId || null, managerId: manager.id } });
+    await tx.managerRoute.updateMany({ where: { businessRole, outletCategoryId: body.outletCategoryId || null }, data: { isActive: false } });
+    await tx.managerRoute.create({ data: { businessRole, outletCategoryId: body.outletCategoryId || null, managerId: manager.id } });
   });
-  logActivity({ actorId: req.user!.id, action: "SET_MANAGER_ROUTE", entity: "ManagerRoute", detail: `${body.businessRole}:${body.outletCategoryId || "ALL"} -> ${manager.nip}`, ip: req.ip });
-  res.json({ message: `Manager ${body.businessRole} diperbarui` });
+  logActivity({ actorId: req.user!.id, action: "SET_MANAGER_ROUTE", entity: "ManagerRoute", detail: `${businessRole}:${body.outletCategoryId || "ALL"} -> ${manager.nip}`, ip: req.ip });
+  res.json({ message: `${role.supervisorLabel} ${role.name} diperbarui` });
 }));
 
 settingsRouter.put("/payout-route", asyncHandler<AuthedRequest>(async (req, res) => {

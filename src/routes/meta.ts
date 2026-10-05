@@ -4,7 +4,6 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { outletCode } from "../lib/outlets";
 import { resolveManagerForBusinessRole } from "../lib/manager";
-import { BUSINESS_ROLES } from "../lib/managerMap";
 import { resolveDisbursementOfficer } from "../lib/routing";
 import {
   AuthedRequest,
@@ -17,7 +16,14 @@ export const metaRouter = Router();
 
 metaRouter.use(requireAuth, requirePasswordChanged);
 
-metaRouter.get("/business-roles", (_req, res) => res.json({ data: BUSINESS_ROLES }));
+metaRouter.get("/business-roles", asyncHandler(async (_req, res) => {
+  const roles = await prisma.businessRole.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { code: true, name: true, supervisorLabel: true, defaultTrack: true, defaultDestination: true },
+  });
+  res.json({ data: roles });
+}));
 
 metaRouter.get("/disbursement-preview", asyncHandler<AuthedRequest>(async (req, res) => {
   const track = req.query.track === "FINANCE" ? "FINANCE" : "DIREKTUR";
