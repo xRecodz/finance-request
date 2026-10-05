@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import type { ApproverTrack, CategoryOption, ManagedUser, UserRole } from "@/lib/types";
+import type { ApproverTrack, BusinessRoleOption, CategoryOption, ManagedUser, UserRole } from "@/lib/types";
 
 type FormState = {
   name: string;
@@ -31,8 +31,12 @@ export default function ItEditUserPage() {
   const [resetting, setResetting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [outlets, setOutlets] = useState<CategoryOption[]>([]);
+  const [businessRoles, setBusinessRoles] = useState<BusinessRoleOption[]>([]);
 
-  useEffect(() => { void api<{ data: CategoryOption[] }>("/api/meta/categories?kind=OUTLET").then(result => setOutlets(result.data)).catch(() => {}); }, []);
+  useEffect(() => { void Promise.all([
+    api<{ data: CategoryOption[] }>("/api/meta/categories?kind=OUTLET"),
+    api<{ data: BusinessRoleOption[] }>("/api/meta/business-roles"),
+  ]).then(([outletResult, roleResult]) => { setOutlets(outletResult.data); setBusinessRoles(roleResult.data); }).catch(() => {}); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,7 +251,7 @@ export default function ItEditUserPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Divisi pengajuan</span><select className="input" value={form.businessRole} onChange={e => setField("businessRole", e.target.value)} disabled={isAdminTarget}><option value="">Belum dipilih</option>{["MARKETING", "GA", "HRD", "IT", "ACCOUNTING", "AUDIT", "FINANCE", "IC", "OPERASIONAL"].map(role => <option key={role}>{role}</option>)}</select></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-semibold">Divisi pengajuan</span><select className="input" value={form.businessRole} onChange={e => setField("businessRole", e.target.value)} disabled={isAdminTarget}><option value="">Belum dipilih</option>{businessRoles.map(role => <option key={role.code} value={role.code}>{role.name}</option>)}</select></label>
           <label className="block"><span className="mb-1.5 block text-sm font-semibold">Penempatan</span><select className="input" value={form.workLocation} onChange={e => setField("workLocation", e.target.value)} disabled={isAdminTarget}><option value="">Belum dipilih</option><option value="HO">Head Office</option><option value="OUTLET">Outlet</option></select></label>
           {form.workLocation === "OUTLET" && <label className="block"><span className="mb-1.5 block text-sm font-semibold">Outlet karyawan</span><select className="input" value={form.homeOutletId} onChange={e => setField("homeOutletId", e.target.value)} disabled={isAdminTarget}><option value="">Pilih outlet</option>{outlets.map(outlet => <option value={outlet.id} key={outlet.id}>{outlet.name}</option>)}</select></label>}
           <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={form.onboardingComplete} onChange={e => setField("onboardingComplete", e.target.checked)} disabled={isAdminTarget} />Profil awal selesai</label>

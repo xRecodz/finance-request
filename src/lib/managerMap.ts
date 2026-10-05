@@ -28,10 +28,6 @@ export const BUSINESS_ROLE_MANAGER_NIPS: Record<string, string> = {
   IC: MANAGER_NIPS.FINANCE,
 };
 
-export const BUSINESS_ROLES = [
-  "MARKETING", "GA", "HRD", "IT", "ACCOUNTING", "AUDIT", "FINANCE", "IC", "OPERASIONAL",
-] as const;
-
 /** Exact match pada User.department (case-sensitive setelah trim). */
 export const DEPARTMENT_MANAGER_MAP: Record<string, string> = {
   // Finance → Ega

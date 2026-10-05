@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import type { ApproverTrack, ManagedUser, UserRole } from "@/lib/types";
+import type { ApproverTrack, BusinessRoleOption, ManagedUser, UserRole } from "@/lib/types";
 
 type FormState = {
   nip: string;
@@ -15,6 +15,7 @@ type FormState = {
   department: string;
   role: Exclude<UserRole, "ADMIN">;
   approverTrack: ApproverTrack | "";
+  businessRole: string;
 };
 
 const initial: FormState = {
@@ -26,6 +27,7 @@ const initial: FormState = {
   department: "",
   role: "PEMOHON",
   approverTrack: "",
+  businessRole: "",
 };
 
 export default function ItCreateUserPage() {
@@ -33,6 +35,9 @@ export default function ItCreateUserPage() {
   const [form, setForm] = useState<FormState>(initial);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [businessRoles, setBusinessRoles] = useState<BusinessRoleOption[]>([]);
+
+  useEffect(() => { void api<{ data: BusinessRoleOption[] }>("/api/meta/business-roles").then((result) => setBusinessRoles(result.data)).catch(() => {}); }, []);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -54,6 +59,7 @@ export default function ItCreateUserPage() {
           department: form.department.trim() || null,
           role: form.role,
           approverTrack: form.role === "APPROVER" ? form.approverTrack || null : null,
+          businessRole: form.businessRole || null,
         }),
       });
       router.replace(`/it/users/${res.data.id}`);
@@ -114,6 +120,8 @@ export default function ItCreateUserPage() {
             />
           </label>
         </div>
+
+        <label className="block"><span className="mb-1.5 block text-sm font-semibold">Divisi pengajuan</span><select className="input" value={form.businessRole} onChange={(e) => set("businessRole", e.target.value)}><option value="">Biarkan user memilih saat login pertama</option>{businessRoles.map((role) => <option key={role.code} value={role.code}>{role.name}</option>)}</select></label>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Jabatan</span>

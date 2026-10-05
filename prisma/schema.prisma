@@ -131,6 +131,22 @@ model Category {
   @@index([kind, isActive, sortOrder])
 }
 
+/// Master divisi organisasi. Berbeda dari UserRole yang mengatur hak akses aplikasi.
+model BusinessRole {
+  id                String        @id @default(cuid())
+  code              String        @unique
+  name              String
+  supervisorLabel   String        @default("Manager")
+  defaultTrack      ApproverTrack @default(FINANCE)
+  defaultDestination String       @default("HO")
+  isActive          Boolean       @default(true)
+  sortOrder         Int           @default(0)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
 // ── Pengajuan ───────────────────────────────────────────────────────────────
 
 model Request {
