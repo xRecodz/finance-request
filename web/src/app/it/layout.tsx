@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Bot, LayoutDashboard, Settings, UserPlus, Users } from "lucide-react";
+import { Activity, Bot, LayoutDashboard, Settings, Trash2, UserPlus, Users } from "lucide-react";
 import { AppShell, type NavItem } from "@/components/AppShell";
 import { Guard } from "@/components/Guard";
 
@@ -8,6 +8,7 @@ const nav: NavItem[] = [
   { href: "/it", label: "Daftar User", icon: Users, match: "exact" },
   { href: "/it/overview", label: "Dashboard IT", icon: LayoutDashboard },
   { href: "/it/settings", label: "Routing & Password", icon: Settings },
+  { href: "/it/requests", label: "Hapus Pengajuan", icon: Trash2 },
   { href: "/it/audit", label: "Audit", icon: Activity },
   { href: "/it/ai", label: "Asisten AI", icon: Bot },
   {

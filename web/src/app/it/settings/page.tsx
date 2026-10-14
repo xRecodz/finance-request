@@ -10,17 +10,7 @@ type Category = { id: string; code: string; name: string; description?: string |
 type ManagerRoute = BusinessRole & { businessRole: string; manager: Person; configured: boolean };
 type PayoutRoute = { track: string; destination: string; officer: Person; configured: boolean };
 type Data = { businessRoles: BusinessRole[]; categories: Category[]; managerRoutes: ManagerRoute[]; payoutRoutes: PayoutRoute[]; defaultPasswordConfigured: boolean };
-type RequestPreview = {
-  id: string;
-  number: string;
-  title: string;
-  status: string;
-  totalAmount?: number | string;
-  requester?: Person;
-  manager: Person;
-  disbursementOfficer: Person;
-  approver: Person;
-};
+type RequestPreview = { number: string; title: string; status: string; manager: Person; disbursementOfficer: Person; approver: Person };
 
 type NewRole = { code: string; name: string; supervisorLabel: string; defaultTrack: "DIREKTUR" | "FINANCE"; defaultDestination: "HO" | "OUTLET"; sortOrder: number };
 const defaultRole: NewRole = { code: "", name: "", supervisorLabel: "Manager", defaultTrack: "FINANCE", defaultDestination: "HO", sortOrder: 500 };
@@ -40,10 +30,6 @@ export default function ItSettingsPage() {
   const [target, setTarget] = useState<"manager" | "officer">("manager");
   const [targetNip, setTargetNip] = useState("");
   const [reason, setReason] = useState("");
-  const [deleteNumber, setDeleteNumber] = useState("");
-  const [deletePreview, setDeletePreview] = useState<RequestPreview | null>(null);
-  const [deleteReason, setDeleteReason] = useState("");
-  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -96,98 +82,6 @@ export default function ItSettingsPage() {
     <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Petugas pencairan</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{data?.payoutRoutes.map((item) => <form key={`${item.track}:${item.destination}`} className="rounded-xl border border-sli-line p-3" onSubmit={(event) => { event.preventDefault(); const input = event.currentTarget.elements.namedItem("nip") as HTMLInputElement; void save("/api/settings/payout-route", { track: item.track, destination: item.destination, officerNip: input.value.trim() }, `${item.track}:${item.destination}`); }}><label className="text-sm font-semibold">{item.track === "DIREKTUR" ? "Sekretariat" : "Finance"} → {item.destination === "HO" ? "Head Office" : "Outlet"}</label><p className="mb-2 text-xs text-sli-muted">{item.officer ? `${item.officer.name} · ${item.officer.nip}` : "Belum diatur"}</p><div className="flex gap-2"><input name="nip" defaultValue={item.officer?.nip || ""} className="input min-w-0 flex-1" required /><button disabled={Boolean(busy)} className="btn-primary rounded-lg px-3 text-sm">Simpan</button></div></form>)}</div></section>
 
     <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Perbaiki penugasan pengajuan</h2><p className="mt-1 text-sm text-sli-muted">Alihkan atasan atau petugas pencairan pada pengajuan yang masih menunggu.</p><form className="mt-4 flex flex-wrap gap-2" onSubmit={async (event) => { event.preventDefault(); setError(""); try { const result = await api<{ data: RequestPreview }>(`/api/settings/request-preview?number=${encodeURIComponent(requestNumber.trim())}`); setRequestPreview(result.data); } catch (err) { setError(err instanceof ApiError ? err.message : "Pengajuan tidak ditemukan"); } }}><input className="input min-w-[230px] flex-1" value={requestNumber} onChange={(event) => setRequestNumber(event.target.value)} placeholder="Nomor pengajuan lengkap" required /><button className="btn-ghost rounded-xl px-4">Cari</button></form>{requestPreview ? <div className="mt-4 space-y-3 rounded-xl border border-sli-line p-4 text-sm"><p className="font-semibold">{requestPreview.number} · {requestPreview.title}</p><p>Status: {requestPreview.status}</p><p>Atasan: {requestPreview.manager?.name || "—"} · Petugas: {requestPreview.disbursementOfficer?.name || requestPreview.approver?.name || "—"}</p><form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => { event.preventDefault(); void save("/api/settings/reroute-request", { number: requestPreview.number, target, nip: targetNip.trim(), reason: reason.trim() }, "reroute").then(() => setRequestPreview(null)); }}><select className="input" value={target} onChange={(event) => setTarget(event.target.value as "manager" | "officer")}><option value="manager">Atasan</option><option value="officer">Petugas pencairan</option></select><input className="input" value={targetNip} onChange={(event) => setTargetNip(event.target.value)} placeholder="NIP tujuan" required /><input className="input" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Alasan, minimal 5 karakter" minLength={5} required /><button className="btn-primary rounded-xl px-4" disabled={Boolean(busy)}>Alihkan tugas</button></form></div> : null}</section>
-
-    <section className="panel rounded-2xl p-5">
-      <h2 className="text-lg font-bold">Hapus pengajuan</h2>
-      <p className="mt-1 text-sm text-sli-muted">
-        Hapus pengajuan beserta item, log approval, notifikasi, LPJ, dan pencairan terkait. File lampiran di storage tidak ikut dihapus. Tindakan ini tidak bisa dibatalkan.
-      </p>
-      <form
-        className="mt-4 flex flex-wrap gap-2"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setError("");
-          setNotice("");
-          try {
-            const result = await api<{ data: RequestPreview }>(
-              `/api/settings/request-preview?number=${encodeURIComponent(deleteNumber.trim())}`
-            );
-            setDeletePreview(result.data);
-            setDeleteConfirm("");
-          } catch (err) {
-            setDeletePreview(null);
-            setError(err instanceof ApiError ? err.message : "Pengajuan tidak ditemukan");
-          }
-        }}
-      >
-        <input
-          className="input min-w-[230px] flex-1"
-          value={deleteNumber}
-          onChange={(event) => setDeleteNumber(event.target.value)}
-          placeholder="Nomor pengajuan lengkap, contoh SLI/FIN/2026/10/0005"
-          required
-        />
-        <button type="submit" className="btn-ghost rounded-xl px-4">Cari</button>
-      </form>
-      {deletePreview ? (
-        <div className="mt-4 space-y-3 rounded-xl border border-red-200 bg-red-50/40 p-4 text-sm">
-          <p className="font-semibold text-sli-ink">{deletePreview.number} · {deletePreview.title}</p>
-          <p>Status: {deletePreview.status}</p>
-          <p>Pemohon: {deletePreview.requester?.name || "—"} · {deletePreview.requester?.nip || ""}</p>
-          <form
-            className="grid gap-3 md:grid-cols-2"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (deleteConfirm.trim() !== deletePreview.number) {
-                setError("Ketik ulang nomor pengajuan dengan tepat untuk konfirmasi hapus");
-                return;
-              }
-              setBusy("delete-request");
-              setError("");
-              setNotice("");
-              try {
-                const result = await api<{ message: string }>("/api/settings/delete-request", {
-                  method: "POST",
-                  body: JSON.stringify({ number: deletePreview.number, reason: deleteReason.trim() }),
-                });
-                setNotice(result.message);
-                setDeletePreview(null);
-                setDeleteNumber("");
-                setDeleteReason("");
-                setDeleteConfirm("");
-              } catch (err) {
-                setError(err instanceof ApiError ? err.message : "Gagal menghapus pengajuan");
-              } finally {
-                setBusy("");
-              }
-            }}
-          >
-            <input
-              className="input md:col-span-2"
-              value={deleteReason}
-              onChange={(event) => setDeleteReason(event.target.value)}
-              placeholder="Alasan hapus, minimal 5 karakter"
-              minLength={5}
-              required
-            />
-            <input
-              className="input md:col-span-2"
-              value={deleteConfirm}
-              onChange={(event) => setDeleteConfirm(event.target.value)}
-              placeholder={`Ketik ulang nomor: ${deletePreview.number}`}
-              required
-            />
-            <button
-              type="submit"
-              disabled={busy === "delete-request"}
-              className="rounded-xl bg-sli-red px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60 md:col-span-2"
-            >
-              {busy === "delete-request" ? "Menghapus..." : "Hapus pengajuan permanen"}
-            </button>
-          </form>
-        </div>
-      ) : null}
-    </section>
 
     <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Password default</h2><p className="mt-1 text-sm text-sli-muted">Berlaku untuk akun baru dan reset berikutnya.</p><form className="mt-4 flex flex-wrap gap-2" onSubmit={(event) => { event.preventDefault(); void save("/api/settings/default-password", { password }, "password").then(() => setPassword("")); }}><div className="min-w-[220px] flex-1"><PasswordInput className="input" value={password} onChange={(event) => setPassword(event.target.value)} minLength={6} placeholder="Password baru, minimal 6 karakter" required /></div><button disabled={Boolean(busy)} className="btn-primary rounded-xl px-4">Ubah Password Default</button></form></section>
   </div>;
