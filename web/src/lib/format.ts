@@ -7,6 +7,48 @@ export function formatRupiah(value: number | null | undefined): string {
   }).format(value ?? 0);
 }
 
+/** Tampilkan angka untuk input (pemisah ribuan titik, desimal koma). */
+export function formatLocaleInput(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return new Intl.NumberFormat("id-ID", {
+    maximumFractionDigits: 2,
+    useGrouping: true,
+  }).format(value);
+}
+
+/**
+ * Parse angka gaya Indonesia: titik = ribuan, koma = desimal.
+ * Contoh: "1.020.003" → 1020003, "1.020.003,5" → 1020003.5, "1,5" → 1.5
+ * Juga menerima titik desimal Barat jika tidak ada koma ("1.5" → 1.5).
+ */
+export function parseLocaleNumber(value: string | number | null | undefined): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (value == null) return NaN;
+  const cleaned = String(value).trim().replace(/\s/g, "");
+  if (!cleaned || cleaned === "-" || cleaned === "," || cleaned === ".") return NaN;
+
+  if (cleaned.includes(",")) {
+    const normalized = cleaned.replace(/\./g, "").replace(",", ".");
+    return Number(normalized);
+  }
+
+  const parts = cleaned.split(".");
+  if (parts.length > 2) {
+    return Number(parts.join(""));
+  }
+  // Satu titik + tepat 3 digit di belakang → pemisah ribuan (1.000 → 1000)
+  if (
+    parts.length === 2 &&
+    parts[0] !== "" &&
+    parts[1].length === 3 &&
+    /^\d+$/.test(parts[0].replace(/^-/, "")) &&
+    /^\d+$/.test(parts[1])
+  ) {
+    return Number(parts[0] + parts[1]);
+  }
+  return Number(cleaned);
+}
+
 export function formatDate(value?: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleDateString("id-ID", {

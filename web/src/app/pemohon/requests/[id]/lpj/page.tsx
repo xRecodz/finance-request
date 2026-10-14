@@ -3,20 +3,20 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { formatRupiah } from "@/lib/format";
+import { formatRupiah, parseLocaleNumber } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
 type LpjItemForm = {
   description: string;
   transactionDate: string;
-  amount: number;
+  amount: string;
   vendor: string;
 };
 
 const empty = (): LpjItemForm => ({
   description: "",
   transactionDate: new Date().toISOString().slice(0, 10),
-  amount: 0,
+  amount: "",
   vendor: "",
 });
 
@@ -34,7 +34,7 @@ export default function LpjPage() {
     void api<{ data: RequestRow }>(`/api/requests/${params.id}`).then((res) => setRequest(res.data));
   }, [params.id]);
 
-  const total = items.reduce((s, i) => s + Number(i.amount || 0), 0);
+  const total = items.reduce((s, i) => s + (parseLocaleNumber(i.amount) || 0), 0);
   const diterima = request?.approvedAmount ?? request?.totalAmount ?? 0;
 
   async function onSubmit(e: FormEvent) {
@@ -42,6 +42,12 @@ export default function LpjPage() {
     setError("");
     setSaving(true);
     try {
+      for (const item of items) {
+        const amount = parseLocaleNumber(item.amount);
+        if (!Number.isFinite(amount) || amount < 0) {
+          throw new ApiError("Nominal transaksi harus berupa angka (boleh pakai koma/titik ribuan)", 400);
+        }
+      }
       const res = await api<{ data: RequestRow }>(`/api/requests/${params.id}/lpj`, {
         method: "POST",
         body: JSON.stringify({
@@ -49,7 +55,7 @@ export default function LpjPage() {
           items: items.map((item) => ({
             description: item.description,
             transactionDate: item.transactionDate,
-            amount: Number(item.amount),
+            amount: parseLocaleNumber(item.amount) || 0,
             vendor: item.vendor || null,
           })),
         }),
@@ -112,14 +118,14 @@ export default function LpjPage() {
             />
             <input
               className="input"
-              type="number"
-              min={0}
-              placeholder="Nominal"
+              type="text"
+              inputMode="decimal"
+              placeholder="Nominal (contoh 1.020.003)"
               value={item.amount}
               onChange={(e) =>
                 setItems((prev) =>
                   prev.map((row, i) =>
-                    i === index ? { ...row, amount: Number(e.target.value) } : row
+                    i === index ? { ...row, amount: e.target.value } : row
                   )
                 )
               }

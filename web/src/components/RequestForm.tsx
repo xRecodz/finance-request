@@ -6,21 +6,30 @@ import { OutletCombobox } from "@/components/OutletCombobox";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { type CategoryMode, type SekretariatDest } from "@/lib/approverCategories";
-import { formatRupiah } from "@/lib/format";
+import { formatLocaleInput, formatRupiah, parseLocaleNumber } from "@/lib/format";
 import type {
   ApproverTrack,
   BusinessRoleOption,
   CategoryOption,
-  RequestItem,
   RequestRow,
 } from "@/lib/types";
 
-const emptyItem = (): RequestItem => ({
+/** Qty/harga disimpan sebagai teks agar bisa ketik koma/titik saat input. */
+type FormItem = {
+  name: string;
+  spec: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  note: string;
+};
+
+const emptyItem = (): FormItem => ({
   name: "",
   spec: "",
-  quantity: 1,
+  quantity: "1",
   unit: "pcs",
-  unitPrice: 0,
+  unitPrice: "",
   note: "",
 });
 
@@ -74,14 +83,14 @@ export function RequestForm({ mode, initial, onSave }: Props) {
   const [bankName, setBankName] = useState(initial?.bankName || "");
   const [bankAccountNumber, setBankAccountNumber] = useState(initial?.bankAccountNumber || "");
   const [bankAccountHolder, setBankAccountHolder] = useState(initial?.bankAccountHolder || "");
-  const [items, setItems] = useState<RequestItem[]>(
+  const [items, setItems] = useState<FormItem[]>(
     initial?.items?.length
       ? initial.items.map((item) => ({
           name: item.name,
           spec: item.spec || "",
-          quantity: Number(item.quantity),
+          quantity: formatLocaleInput(Number(item.quantity)),
           unit: item.unit || "pcs",
-          unitPrice: Number(item.unitPrice),
+          unitPrice: formatLocaleInput(Number(item.unitPrice)),
           note: item.note || "",
         }))
       : [emptyItem()]
@@ -155,13 +164,16 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     setDest(isOutlet ? "OUTLET" : "HO");
   }, [mode, initial?.category, categories]);
 
-  const total = items.reduce((sum, item) => sum + Number(item.quantity) * Number(item.unitPrice), 0);
+  const total = items.reduce(
+    (sum, item) => sum + (parseLocaleNumber(item.quantity) || 0) * (parseLocaleNumber(item.unitPrice) || 0),
+    0
+  );
   const isRevisi = initial?.status === "REVISI";
   const existingProofs = (initial?.attachments || []).filter((file) => file.kind === "PENDUKUNG");
   const selectedCategory = categories.find((category) => category.id === categoryId);
   const skipsManager = track === "DIREKTUR" || selectedCategory?.code === "OPEN";
 
-  function updateItem(index: number, patch: Partial<RequestItem>) {
+  function updateItem(index: number, patch: Partial<FormItem>) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   }
 
@@ -195,14 +207,18 @@ export function RequestForm({ mode, initial, onSave }: Props) {
       bankName: bankName || null,
       bankAccountNumber: bankAccountNumber || null,
       bankAccountHolder: bankAccountHolder || null,
-      items: items.map((item) => ({
-        name: item.name,
-        spec: item.spec || null,
-        quantity: Number(item.quantity),
-        unit: item.unit || "pcs",
-        unitPrice: Number(item.unitPrice),
-        note: item.note || null,
-      })),
+      items: items.map((item) => {
+        const quantity = parseLocaleNumber(item.quantity);
+        const unitPrice = parseLocaleNumber(item.unitPrice);
+        return {
+          name: item.name,
+          spec: item.spec || null,
+          quantity: Number.isFinite(quantity) ? quantity : 0,
+          unit: item.unit || "pcs",
+          unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+          note: item.note || null,
+        };
+      }),
       submit: submitNow,
     };
   }
@@ -211,6 +227,16 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     setError("");
     setSaving(true);
     try {
+      for (const item of items) {
+        const qty = parseLocaleNumber(item.quantity);
+        const price = parseLocaleNumber(item.unitPrice);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          throw new ApiError("Qty item harus berupa angka lebih dari 0 (boleh pakai koma)", 400);
+        }
+        if (!Number.isFinite(price) || price < 0) {
+          throw new ApiError("Harga item harus berupa angka (boleh pakai koma/titik ribuan)", 400);
+        }
+      }
       const resolved = await resolveCategoryId();
       if (submitNow && !resolved) {
         throw new ApiError(
@@ -473,12 +499,11 @@ export function RequestForm({ mode, initial, onSave }: Props) {
               />
               <input
                 className="input"
-                placeholder="Qty"
-                type="number"
-                min={0.01}
-                step="0.01"
+                placeholder="Qty (contoh 1,5)"
+                type="text"
+                inputMode="decimal"
                 value={item.quantity}
-                onChange={(e) => updateItem(index, { quantity: Number(e.target.value) })}
+                onChange={(e) => updateItem(index, { quantity: e.target.value })}
                 required
               />
               <input
@@ -490,17 +515,18 @@ export function RequestForm({ mode, initial, onSave }: Props) {
               />
               <input
                 className="input"
-                placeholder="Harga"
-                type="number"
-                min={0}
-                step="1"
+                placeholder="Harga (contoh 1.020.003)"
+                type="text"
+                inputMode="decimal"
                 value={item.unitPrice}
-                onChange={(e) => updateItem(index, { unitPrice: Number(e.target.value) })}
+                onChange={(e) => updateItem(index, { unitPrice: e.target.value })}
                 required
               />
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-sli-red">
-                  {formatRupiah(Number(item.quantity) * Number(item.unitPrice))}
+                  {formatRupiah(
+                    (parseLocaleNumber(item.quantity) || 0) * (parseLocaleNumber(item.unitPrice) || 0)
+                  )}
                 </span>
                 {items.length > 1 ? (
                   <button

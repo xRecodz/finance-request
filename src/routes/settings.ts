@@ -32,9 +32,49 @@ settingsRouter.get("/audit", asyncHandler<AuthedRequest>(async (req, res) => {
 
 settingsRouter.get("/request-preview", asyncHandler<AuthedRequest>(async (req, res) => {
   const number = z.string().trim().min(3).parse(req.query.number);
-  const row = await prisma.request.findUnique({ where: { number }, select: { id: true, number: true, title: true, status: true, workflowVersion: true, manager: { select: { nip: true, name: true } }, disbursementOfficer: { select: { nip: true, name: true } }, approver: { select: { nip: true, name: true } } } });
+  const row = await prisma.request.findUnique({
+    where: { number },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      status: true,
+      totalAmount: true,
+      workflowVersion: true,
+      requester: { select: { nip: true, name: true } },
+      manager: { select: { nip: true, name: true } },
+      disbursementOfficer: { select: { nip: true, name: true } },
+      approver: { select: { nip: true, name: true } },
+    },
+  });
   if (!row) throw new HttpError(404, "Nomor pengajuan tidak ditemukan");
   res.json({ data: row });
+}));
+
+settingsRouter.post("/delete-request", asyncHandler<AuthedRequest>(async (req, res) => {
+  const body = z.object({
+    number: z.string().trim().min(3),
+    reason: z.string().trim().min(5).max(500),
+  }).parse(req.body);
+  const row = await prisma.request.findUnique({
+    where: { number: body.number },
+    select: { id: true, number: true, title: true, status: true, totalAmount: true },
+  });
+  if (!row) throw new HttpError(404, "Nomor pengajuan tidak ditemukan");
+
+  await prisma.request.delete({ where: { id: row.id } });
+  logActivity({
+    actorId: req.user!.id,
+    action: "ADMIN_DELETE_REQUEST",
+    entity: "Request",
+    entityId: row.id,
+    detail: `${row.number} (${row.status}) — ${row.title}. Alasan: ${body.reason}`,
+    ip: req.ip,
+  });
+  res.json({
+    message: `Pengajuan ${row.number} dihapus beserta data terkait`,
+    data: { id: row.id, number: row.number },
+  });
 }));
 
 settingsRouter.put("/reroute-request", asyncHandler<AuthedRequest>(async (req, res) => {

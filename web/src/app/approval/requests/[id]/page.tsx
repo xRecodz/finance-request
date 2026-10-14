@@ -7,17 +7,17 @@ import { DocumentPreviewPanel } from "@/components/DocumentPreviewPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatDateTime, formatRupiah, trackLabel } from "@/lib/format";
+import { formatDateTime, formatLocaleInput, formatRupiah, parseLocaleNumber, trackLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
 export default function ApprovalDetailPage() {
   const params = useParams<{ id: string }>();
   const { user } = useAuth();
   const [data, setData] = useState<RequestRow | null>(null);
-  const [approvedAmount, setApprovedAmount] = useState(0);
+  const [approvedAmount, setApprovedAmount] = useState("");
   const [note, setNote] = useState("");
   const [disbursementRef, setDisbursementRef] = useState("");
-  const [disbursementAmount, setDisbursementAmount] = useState(0);
+  const [disbursementAmount, setDisbursementAmount] = useState("");
   const [proof, setProof] = useState<File | null>(null);
   const [missingProof, setMissingProof] = useState<File | null>(null);
   const [error, setError] = useState("");
@@ -26,8 +26,8 @@ export default function ApprovalDetailPage() {
   const load = useCallback(async () => {
     const res = await api<{ data: RequestRow }>(`/api/requests/${params.id}`);
     setData(res.data);
-    setApprovedAmount(res.data.approvedAmount ?? res.data.totalAmount);
-    setDisbursementAmount(res.data.approvedAmount ?? res.data.totalAmount);
+    setApprovedAmount(formatLocaleInput(res.data.approvedAmount ?? res.data.totalAmount));
+    setDisbursementAmount(formatLocaleInput(res.data.approvedAmount ?? res.data.totalAmount));
   }, [params.id]);
 
   useEffect(() => {
@@ -56,11 +56,16 @@ export default function ApprovalDetailPage() {
 
   async function onApprove(e: FormEvent) {
     e.preventDefault();
-    const body =
-      data?.status === "MENUNGGU_MANAGER"
-        ? { note: note || null }
-        : { approvedAmount, note: note || null };
-    await act(`/api/approvals/${params.id}/approve`, body);
+    if (data?.status !== "MENUNGGU_MANAGER") {
+      const amount = parseLocaleNumber(approvedAmount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        setError("Nominal disetujui harus berupa angka (boleh pakai koma/titik ribuan)");
+        return;
+      }
+      await act(`/api/approvals/${params.id}/approve`, { approvedAmount: amount, note: note || null });
+      return;
+    }
+    await act(`/api/approvals/${params.id}/approve`, { note: note || null });
   }
 
   async function onReject() {
@@ -85,9 +90,14 @@ export default function ApprovalDetailPage() {
       setError("Bukti transfer wajib dipilih sebelum menandai sudah ditransfer");
       return;
     }
+    const amount = parseLocaleNumber(disbursementAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Nominal pencairan harus berupa angka lebih dari 0 (boleh pakai koma/titik ribuan)");
+      return;
+    }
     const fd = new FormData();
     if (disbursementRef) fd.append("disbursementRef", disbursementRef);
-    fd.append("amount", String(disbursementAmount));
+    fd.append("amount", String(amount));
     if (note) fd.append("note", note);
     if (proof) fd.append("proof", proof);
     if (await act(`/api/approvals/${params.id}/disburse`, fd, true)) setProof(null);
@@ -212,11 +222,11 @@ export default function ApprovalDetailPage() {
             <span className="mb-1.5 block text-sm font-semibold">Nominal disetujui</span>
             <input
               className="input"
-              type="number"
-              min={0}
-              max={data.totalAmount}
+              type="text"
+              inputMode="decimal"
+              placeholder="Contoh 1.020.003"
               value={approvedAmount}
-              onChange={(e) => setApprovedAmount(Number(e.target.value))}
+              onChange={(e) => setApprovedAmount(e.target.value)}
               required
             />
           </label>
@@ -252,8 +262,8 @@ export default function ApprovalDetailPage() {
         <form onSubmit={onDisburse} className="panel space-y-3 rounded-2xl p-5">
           <h2 className="font-semibold">Pencairan dana</h2>
           <label className="block"><span className="mb-1 block text-sm font-semibold">Nominal aktual dicairkan</span>
-            <input className="input" type="number" min="1" max={data.approvedAmount ?? data.totalAmount}
-              value={disbursementAmount} onChange={(e) => setDisbursementAmount(Number(e.target.value))} required />
+            <input className="input" type="text" inputMode="decimal" placeholder="Contoh 1.020.003"
+              value={disbursementAmount} onChange={(e) => setDisbursementAmount(e.target.value)} required />
           </label>
           <input
             className="input"
