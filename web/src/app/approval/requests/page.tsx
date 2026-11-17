@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { downloadRequestsCsv } from "@/lib/exportCsv";
-import { formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
+import { calendarMonthRange, formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 
 const MANAGER_PENDING = "MENUNGGU_MANAGER";
@@ -17,16 +17,27 @@ function ApprovalRequestsContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const requestedView = searchParams.get("view") === "approver" ? "approver" : "manager";
+  const statusParam = searchParams.get("status");
   const [view, setView] = useState<"manager" | "approver">(requestedView);
   const isManager = view === "manager";
   const [rows, setRows] = useState<RequestRow[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(searchParams.get("q") || "");
   const [status, setStatus] = useState(
-    searchParams.get("status") || (requestedView === "manager" ? MANAGER_PENDING : APPROVER_PENDING)
+    statusParam !== null
+      ? statusParam
+      : requestedView === "manager"
+        ? MANAGER_PENDING
+        : APPROVER_PENDING
   );
   const [track, setTrack] = useState("");
   const [from, setFrom] = useState(searchParams.get("from") || "");
   const [to, setTo] = useState(searchParams.get("to") || "");
+  const rawDateField = searchParams.get("dateField");
+  const [dateField, setDateField] = useState<"createdAt" | "submittedAt" | "disbursedAt">(
+    rawDateField === "submittedAt" || rawDateField === "disbursedAt" ? rawDateField : "createdAt"
+  );
+  const [requesterId, setRequesterId] = useState(searchParams.get("requesterId") || "");
+  const [requesterName, setRequesterName] = useState(searchParams.get("requesterName") || "");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -37,16 +48,29 @@ function ApprovalRequestsContent() {
     if (!user) return;
     if (!user.canApprove && user.canDisburse) {
       setView("approver");
-      if (!searchParams.get("status")) setStatus(APPROVER_PENDING);
+      if (statusParam === null) setStatus(APPROVER_PENDING);
     } else if (user.canApprove && !user.canDisburse) {
       setView("manager");
-      if (!searchParams.get("status")) setStatus(MANAGER_PENDING);
+      if (statusParam === null) setStatus(MANAGER_PENDING);
     }
-  }, [searchParams, user]);
+  }, [searchParams, statusParam, user]);
 
   function changeView(nextView: "manager" | "approver") {
     setView(nextView);
     setStatus(nextView === "manager" ? MANAGER_PENDING : APPROVER_PENDING);
+    setPage(1);
+  }
+
+  function applyMonthPreset(offset: number) {
+    const range = calendarMonthRange(offset);
+    setFrom(range.from);
+    setTo(range.to);
+    setPage(1);
+  }
+
+  function clearRequesterFilter() {
+    setRequesterId("");
+    setRequesterName("");
     setPage(1);
   }
 
@@ -58,6 +82,8 @@ function ApprovalRequestsContent() {
     if (track) params.set("track", track);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
+    if (dateField !== "createdAt") params.set("dateField", dateField);
+    if (requesterId) params.set("requesterId", requesterId);
     params.set("page", String(page));
     params.set("pageSize", "20");
     void api<{
@@ -67,8 +93,11 @@ function ApprovalRequestsContent() {
       setRows(res.data);
       setTotalPages(res.pagination.totalPages);
       setTotal(res.pagination.total);
+      if (requesterId && !requesterName && res.data[0]?.requester?.name) {
+        setRequesterName(res.data[0].requester.name);
+      }
     });
-  }, [q, status, track, from, to, page, view]);
+  }, [q, status, track, from, to, dateField, requesterId, requesterName, page, view]);
 
   async function onExport() {
     setError("");
@@ -81,6 +110,8 @@ function ApprovalRequestsContent() {
       if (track) params.set("track", track);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
+      if (dateField !== "createdAt") params.set("dateField", dateField);
+      if (requesterId) params.set("requesterId", requesterId);
       await downloadRequestsCsv(params);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal ekspor");
@@ -97,7 +128,7 @@ function ApprovalRequestsContent() {
           <p className="text-sli-muted">
             {isManager
               ? "Pantau dan putuskan pengajuan dari departemen Anda. Gunakan pencarian untuk menemukan data."
-              : "Filter berdasarkan status, jalur, dan rentang tanggal."}
+              : "Filter berdasarkan status, jalur, keyword, dan rentang tanggal."}
           </p>
         </div>
         <button
@@ -110,17 +141,45 @@ function ApprovalRequestsContent() {
         </button>
       </div>
 
-      {user?.canApprove && user?.canDisburse ? <div className="flex gap-2">
-        <button className={isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => changeView("manager")}>Approval Manager</button>
-        <button className={!isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"} onClick={() => changeView("approver")}>Pencairan</button>
-      </div> : null}
+      {user?.canApprove && user?.canDisburse ? (
+        <div className="flex gap-2">
+          <button
+            className={isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"}
+            onClick={() => changeView("manager")}
+          >
+            Approval Manager
+          </button>
+          <button
+            className={!isManager ? "btn-primary rounded-xl px-4 py-2" : "btn-ghost rounded-xl px-4 py-2"}
+            onClick={() => changeView("approver")}
+          >
+            Pencairan
+          </button>
+        </div>
+      ) : null}
 
       {error ? <div className="rounded-xl bg-sli-red-soft px-3 py-2 text-sm text-sli-red">{error}</div> : null}
 
-      <div className="panel grid gap-3 rounded-2xl p-4 md:grid-cols-2 lg:grid-cols-5">
+      {requesterId ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-sli-line bg-sli-cream/50 px-4 py-3 text-sm">
+          <p>
+            Riwayat pengajuan:{" "}
+            <span className="font-semibold text-sli-ink">{requesterName || "Pemohon terpilih"}</span>
+          </p>
+          <button
+            type="button"
+            className="text-sm font-semibold text-sli-red hover:underline"
+            onClick={clearRequesterFilter}
+          >
+            Hapus filter pemohon
+          </button>
+        </div>
+      ) : null}
+
+      <div className="panel grid gap-3 rounded-2xl p-4 md:grid-cols-2 lg:grid-cols-6">
         <input
           className="input lg:col-span-2"
-          placeholder="Cari NIP / nama / nomor..."
+          placeholder="Cari keyword: kudus, NIP, judul, outlet..."
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -170,6 +229,18 @@ function ApprovalRequestsContent() {
           <option value="DIREKTUR">Sekretariat</option>
           <option value="FINANCE">Finance</option>
         </select>
+        <select
+          className="input"
+          value={dateField}
+          onChange={(e) => {
+            setDateField(e.target.value as "createdAt" | "submittedAt" | "disbursedAt");
+            setPage(1);
+          }}
+        >
+          <option value="createdAt">Filter: tanggal buat</option>
+          <option value="submittedAt">Filter: tanggal submit</option>
+          <option value="disbursedAt">Filter: tanggal cair</option>
+        </select>
         <div className="flex gap-2 lg:col-span-2">
           <input
             className="input"
@@ -189,6 +260,33 @@ function ApprovalRequestsContent() {
               setPage(1);
             }}
           />
+        </div>
+        <div className="flex flex-wrap gap-2 lg:col-span-6">
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-1.5 text-xs font-semibold"
+            onClick={() => applyMonthPreset(0)}
+          >
+            Bulan ini
+          </button>
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-1.5 text-xs font-semibold"
+            onClick={() => applyMonthPreset(-1)}
+          >
+            Bulan lalu
+          </button>
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-1.5 text-xs font-semibold"
+            onClick={() => {
+              setFrom("");
+              setTo("");
+              setPage(1);
+            }}
+          >
+            Reset tanggal
+          </button>
         </div>
       </div>
 
@@ -220,7 +318,12 @@ function ApprovalRequestsContent() {
                   <p className="font-medium">{row.requester.name}</p>
                   <p className="text-xs text-sli-muted">{row.requester.nip}</p>
                 </td>
-                <td className="max-w-[220px] truncate px-4 py-3">{row.title}</td>
+                <td className="max-w-[220px] truncate px-4 py-3">
+                  <p className="truncate">{row.title}</p>
+                  {row.category?.name ? (
+                    <p className="truncate text-xs text-sli-muted">{row.category.name}</p>
+                  ) : null}
+                </td>
                 <td className="px-4 py-3">{trackLabel(row.track)}</td>
                 <td className="px-4 py-3">
                   <StatusBadge status={row.status} label={row.statusLabel} />

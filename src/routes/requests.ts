@@ -19,6 +19,7 @@ import {
   requestListInclude,
   serializeRequestDetail,
   serializeRequestList,
+  STATUS_LABEL,
 } from "../lib/requestView";
 import { roundMoney } from "../lib/serialize";
 import { buildObjectKey, getBucketForKind, uploadToR2 } from "../lib/storage";
@@ -79,6 +80,8 @@ const listQuerySchema = z.object({
   as: z.enum(["requester", "approver", "manager"]).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
+  /** Field tanggal untuk filter from/to (default: createdAt). */
+  dateField: z.enum(["createdAt", "submittedAt", "disbursedAt"]).default("createdAt"),
   q: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -232,12 +235,15 @@ function applyListScope(
   user: AuthedRequest["user"],
   query: z.infer<typeof listQuerySchema>
 ) {
+  let ownRequestsOnly = false;
+
   if (query.as === "manager" && user!.canApprove) {
     where.managerId = user!.id;
   } else if (query.as === "approver" && user!.canDisburse) {
     where.OR = [{ disbursementOfficerId: user!.id }, { approverId: user!.id }];
   } else if (query.as === "requester" || (user!.role === UserRole.PEMOHON && !user!.canApprove && !user!.canDisburse)) {
     where.requesterId = user!.id;
+    ownRequestsOnly = true;
   } else if (user!.role === UserRole.MANAGER) {
     where.managerId = user!.id;
   } else if (user!.role === UserRole.APPROVER) {
@@ -248,11 +254,16 @@ function applyListScope(
   } else if (user!.role === UserRole.PEMOHON) {
     where.OR = [{ requesterId: user!.id }, { managerId: user!.id }];
   } else if (user!.role === UserRole.ADMIN) {
-    if (query.requesterId) where.requesterId = query.requesterId;
     if (query.approverId) where.approverId = query.approverId;
     if (query.managerId) where.managerId = query.managerId;
   } else {
     where.requesterId = user!.id;
+    ownRequestsOnly = true;
+  }
+
+  // Filter pemohon dalam scope yang sudah diizinkan (manager / approver / admin).
+  if (query.requesterId && !ownRequestsOnly) {
+    where.requesterId = query.requesterId;
   }
 }
 
@@ -262,13 +273,39 @@ function applySearchFilter(where: Prisma.RequestWhereInput, q?: string) {
     { number: { contains: q } },
     { title: { contains: q } },
     { purpose: { contains: q } },
+    { destination: { contains: q } },
+    { bankName: { contains: q } },
+    { bankAccountNumber: { contains: q } },
+    { bankAccountHolder: { contains: q } },
+    { decisionNote: { contains: q } },
+    { disbursementRef: { contains: q } },
+    { disbursementNote: { contains: q } },
     { requester: { name: { contains: q } } },
     { requester: { nip: { contains: q } } },
+    { category: { name: { contains: q } } },
+    { category: { code: { contains: q } } },
+    { items: { some: { name: { contains: q } } } },
+    { items: { some: { spec: { contains: q } } } },
+    { items: { some: { note: { contains: q } } } },
   ];
   where.AND = [
     ...(where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : []),
     { OR: searchOr },
   ];
+}
+
+function applyDateRangeFilter(
+  where: Prisma.RequestWhereInput,
+  query: Pick<z.infer<typeof listQuerySchema>, "from" | "to" | "dateField">
+) {
+  if (!query.from && !query.to) return;
+  const range = {
+    ...(query.from ? { gte: query.from } : {}),
+    ...(query.to ? { lte: endOfDay(query.to) } : {}),
+  };
+  if (query.dateField === "submittedAt") where.submittedAt = range;
+  else if (query.dateField === "disbursedAt") where.disbursedAt = range;
+  else where.createdAt = range;
 }
 
 const EDITABLE_STATUSES: RequestStatus[] = [RequestStatus.DRAFT, RequestStatus.REVISI];
@@ -293,14 +330,7 @@ requestsRouter.get(
     }
     if (query.track) where.track = query.track;
     if (query.type) where.type = query.type;
-
-    if (query.from || query.to) {
-      where.createdAt = {
-        ...(query.from ? { gte: query.from } : {}),
-        ...(query.to ? { lte: endOfDay(query.to) } : {}),
-      };
-    }
-
+    applyDateRangeFilter(where, query);
     applySearchFilter(where, query.q);
 
     const [total, rows] = await Promise.all([
@@ -326,7 +356,26 @@ requestsRouter.get(
   })
 );
 
-/** Ekspor CSV filter yang sama dengan list (max 5000 baris). */
+const LPJ_STATUS_LABEL: Record<string, string> = {
+  MENUNGGU: "Menunggu",
+  DISETUJUI: "Disetujui",
+  DITOLAK: "Ditolak",
+};
+
+function csvEscape(v: string | number | null | undefined) {
+  const s = v == null ? "" : String(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function csvDate(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toISOString();
+}
+
+/** Ekspor CSV filter yang sama dengan list (max 5000 baris), kolom detail lengkap. */
 requestsRouter.get(
   "/export.csv",
   asyncHandler<AuthedRequest>(async (req, res) => {
@@ -344,58 +393,131 @@ requestsRouter.get(
     }
     if (query.track) where.track = query.track;
     if (query.type) where.type = query.type;
-    if (query.from || query.to) {
-      where.createdAt = {
-        ...(query.from ? { gte: query.from } : {}),
-        ...(query.to ? { lte: endOfDay(query.to) } : {}),
-      };
-    }
+    applyDateRangeFilter(where, query);
     applySearchFilter(where, query.q);
 
     const rows = await prisma.request.findMany({
       where,
-      include: requestListInclude,
+      include: {
+        requester: { select: { id: true, nip: true, name: true, department: true } },
+        manager: { select: { id: true, nip: true, name: true } },
+        approver: { select: { id: true, nip: true, name: true } },
+        disbursementOfficer: { select: { id: true, nip: true, name: true } },
+        category: { select: { id: true, code: true, name: true } },
+        items: { orderBy: { sortOrder: "asc" } },
+        lpj: {
+          select: {
+            status: true,
+            totalRealisasi: true,
+            sisaDana: true,
+            note: true,
+            submittedAt: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
       take: 5000,
     });
 
-    const escape = (v: string | number | null | undefined) => {
-      const s = v == null ? "" : String(v);
-      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-      return s;
-    };
-
     const header = [
       "Nomor",
       "Judul",
+      "Keperluan",
       "Jenis",
       "Jalur",
+      "Tujuan",
+      "Kategori Kode",
+      "Kategori / Outlet",
       "Status",
       "Pemohon NIP",
       "Pemohon",
+      "Departemen Pemohon",
+      "Manager NIP",
       "Manager",
+      "Approver NIP",
       "Approver",
-      "Total",
-      "Disetujui",
-      "Tanggal",
+      "Petugas Cair NIP",
+      "Petugas Cair",
+      "Total Diajukan",
+      "Total Disetujui",
+      "Bank",
+      "No Rekening",
+      "Atas Nama",
+      "Tanggal Dibutuhkan",
+      "Tanggal Dibuat",
+      "Tanggal Submit",
+      "Tanggal Putusan",
+      "Catatan Putusan",
+      "Tanggal Cair",
+      "Ref Pencairan",
+      "Catatan Pencairan",
+      "Batas LPJ",
+      "Tanggal Selesai",
+      "Status LPJ",
+      "Total Realisasi LPJ",
+      "Sisa Dana LPJ",
+      "Catatan LPJ",
+      "Tanggal Submit LPJ",
+      "Jumlah Item",
+      "Rincian Item",
     ];
     const lines = [header.join(",")];
     for (const row of rows) {
-      const s = serializeRequestList(row);
+      const itemLines = row.items.map((item, index) => {
+        const qty = Number(item.quantity);
+        const price = Number(item.unitPrice);
+        const sub = Number(item.subtotal);
+        const parts = [
+          `${index + 1}. ${item.name}`,
+          item.spec ? `spec=${item.spec}` : null,
+          `${qty} ${item.unit} x ${price} = ${sub}`,
+          item.note ? `ket=${item.note}` : null,
+        ].filter(Boolean);
+        return parts.join(" | ");
+      });
+
       lines.push(
         [
-          escape(s.number),
-          escape(s.title),
-          escape(s.type),
-          escape(s.track),
-          escape(s.statusLabel),
-          escape(s.requester.nip),
-          escape(s.requester.name),
-          escape(s.manager?.name ?? ""),
-          escape(s.approver.name),
-          escape(s.totalAmount),
-          escape(s.approvedAmount ?? ""),
-          escape(s.createdAt instanceof Date ? s.createdAt.toISOString() : String(s.createdAt)),
+          csvEscape(row.number),
+          csvEscape(row.title),
+          csvEscape(row.purpose),
+          csvEscape(row.type),
+          csvEscape(row.track),
+          csvEscape(row.destination),
+          csvEscape(row.category?.code ?? ""),
+          csvEscape(row.category?.name ?? ""),
+          csvEscape(STATUS_LABEL[row.status] ?? row.status),
+          csvEscape(row.requester.nip),
+          csvEscape(row.requester.name),
+          csvEscape(row.requester.department ?? ""),
+          csvEscape(row.manager?.nip ?? ""),
+          csvEscape(row.manager?.name ?? ""),
+          csvEscape(row.approver.nip),
+          csvEscape(row.approver.name),
+          csvEscape(row.disbursementOfficer?.nip ?? ""),
+          csvEscape(row.disbursementOfficer?.name ?? ""),
+          csvEscape(Number(row.totalAmount)),
+          csvEscape(row.approvedAmount != null ? Number(row.approvedAmount) : ""),
+          csvEscape(row.bankName),
+          csvEscape(row.bankAccountNumber),
+          csvEscape(row.bankAccountHolder),
+          csvEscape(csvDate(row.neededDate)),
+          csvEscape(csvDate(row.createdAt)),
+          csvEscape(csvDate(row.submittedAt)),
+          csvEscape(csvDate(row.decidedAt)),
+          csvEscape(row.decisionNote),
+          csvEscape(csvDate(row.disbursedAt)),
+          csvEscape(row.disbursementRef),
+          csvEscape(row.disbursementNote),
+          csvEscape(csvDate(row.lpjDueDate)),
+          csvEscape(csvDate(row.completedAt)),
+          csvEscape(row.lpj ? LPJ_STATUS_LABEL[row.lpj.status] ?? row.lpj.status : ""),
+          csvEscape(row.lpj ? Number(row.lpj.totalRealisasi) : ""),
+          csvEscape(row.lpj ? Number(row.lpj.sisaDana) : ""),
+          csvEscape(row.lpj?.note ?? ""),
+          csvEscape(csvDate(row.lpj?.submittedAt)),
+          csvEscape(row.items.length),
+          csvEscape(itemLines.join(" || ")),
         ].join(",")
       );
     }

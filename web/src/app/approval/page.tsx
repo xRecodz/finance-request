@@ -77,6 +77,7 @@ export default function ApprovalDashboard() {
             className="btn-ghost rounded-xl px-3 py-2 text-sm font-semibold"
             onClick={() => {
               const params = new URLSearchParams();
+              params.set("as", view);
               params.set("status", pendingStatus);
               if (from) params.set("from", from);
               if (to) params.set("to", to);
@@ -172,19 +173,35 @@ export default function ApprovalDashboard() {
 
         <div className="panel rounded-2xl p-5">
           <h2 className="font-semibold">Siapa saja yang mengajukan kepada Anda</h2>
+          <p className="mt-1 text-xs text-sli-muted">Klik nama untuk melihat riwayat pengajuan user tersebut.</p>
           <ul className="mt-4 space-y-3">
-            {(summary?.history || []).map((item) => (
-              <li key={item.user.id} className="flex justify-between gap-3 border-b border-sli-line pb-3">
-                <div>
-                  <p className="font-semibold">{item.user.name}</p>
-                  <p className="text-xs text-sli-muted">NIP {item.user.nip}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold text-sli-red">{item.count}x</p>
-                  <p className="text-xs text-sli-muted">{formatRupiah(item.totalAmount)}</p>
-                </div>
-              </li>
-            ))}
+            {(summary?.history || []).map((item) => {
+              const historyParams = new URLSearchParams({
+                view,
+                requesterId: item.user.id,
+                requesterName: item.user.name,
+                status: "",
+              });
+              if (from) historyParams.set("from", from);
+              if (to) historyParams.set("to", to);
+              return (
+                <li key={item.user.id} className="border-b border-sli-line pb-3">
+                  <Link
+                    href={`/approval/requests?${historyParams.toString()}`}
+                    className="flex justify-between gap-3 rounded-xl outline-none ring-sli-red transition hover:bg-sli-cream/50 focus-visible:ring-2"
+                  >
+                    <div>
+                      <p className="font-semibold text-sli-red">{item.user.name}</p>
+                      <p className="text-xs text-sli-muted">NIP {item.user.nip}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-sli-red">{item.count}x</p>
+                      <p className="text-xs text-sli-muted">{formatRupiah(item.totalAmount)}</p>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
             {(summary?.history || []).length === 0 ? (
               <li className="text-sm text-sli-muted">Belum ada riwayat.</li>
             ) : null}

@@ -58,6 +58,16 @@ export function formatDate(value?: string | null): string {
   });
 }
 
+/** Rentang kalender lokal untuk bulan berjalan + offset (0 = bulan ini, -1 = bulan lalu). */
+export function calendarMonthRange(offset = 0): { from: string; to: string } {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { from: iso(start), to: iso(end) };
+}
+
 export function formatDateTime(value?: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("id-ID", {

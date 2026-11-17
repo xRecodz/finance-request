@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
+import { calendarMonthRange, formatDate, formatRupiah, trackLabel, typeLabel } from "@/lib/format";
 import type { RequestRow } from "@/lib/types";
 import { StatusBadge } from "@/components/StatusBadge";
 
@@ -15,9 +15,17 @@ export default function PemohonRequestsPage() {
   const [type, setType] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [dateField, setDateField] = useState<"createdAt" | "submittedAt" | "disbursedAt">("createdAt");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+
+  function applyMonthPreset(offset: number) {
+    const range = calendarMonthRange(offset);
+    setFrom(range.from);
+    setTo(range.to);
+    setPage(1);
+  }
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -27,6 +35,7 @@ export default function PemohonRequestsPage() {
     if (type) params.set("type", type);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
+    if (dateField !== "createdAt") params.set("dateField", dateField);
     params.set("page", String(page));
     params.set("pageSize", "20");
     params.set("as", "requester");
@@ -38,7 +47,7 @@ export default function PemohonRequestsPage() {
       setTotalPages(res.pagination.totalPages);
       setTotal(res.pagination.total);
     });
-  }, [q, status, track, type, from, to, page]);
+  }, [q, status, track, type, from, to, dateField, page]);
 
   return (
     <div className="space-y-5">
@@ -55,7 +64,7 @@ export default function PemohonRequestsPage() {
       <div className="panel grid gap-3 rounded-2xl p-4 md:grid-cols-3 lg:grid-cols-6">
         <input
           className="input md:col-span-2"
-          placeholder="Cari nomor / judul..."
+          placeholder="Cari keyword: kudus, nomor, judul, outlet..."
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -108,7 +117,19 @@ export default function PemohonRequestsPage() {
           <option value="BARANG">Barang</option>
           <option value="REIMBURSEMENT">Reimbursement</option>
         </select>
-        <div className="grid grid-cols-2 gap-2 lg:col-span-1 md:col-span-3">
+        <select
+          className="input"
+          value={dateField}
+          onChange={(e) => {
+            setDateField(e.target.value as "createdAt" | "submittedAt" | "disbursedAt");
+            setPage(1);
+          }}
+        >
+          <option value="createdAt">Filter: tanggal buat</option>
+          <option value="submittedAt">Filter: tanggal submit</option>
+          <option value="disbursedAt">Filter: tanggal cair</option>
+        </select>
+        <div className="grid grid-cols-2 gap-2 md:col-span-3 lg:col-span-2">
           <input
             className="input"
             type="date"
@@ -127,6 +148,33 @@ export default function PemohonRequestsPage() {
               setPage(1);
             }}
           />
+        </div>
+        <div className="flex flex-wrap gap-2 md:col-span-3 lg:col-span-6">
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-1.5 text-xs font-semibold"
+            onClick={() => applyMonthPreset(0)}
+          >
+            Bulan ini
+          </button>
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-1.5 text-xs font-semibold"
+            onClick={() => applyMonthPreset(-1)}
+          >
+            Bulan lalu
+          </button>
+          <button
+            type="button"
+            className="btn-ghost rounded-xl px-3 py-1.5 text-xs font-semibold"
+            onClick={() => {
+              setFrom("");
+              setTo("");
+              setPage(1);
+            }}
+          >
+            Reset tanggal
+          </button>
         </div>
       </div>
 

@@ -68,6 +68,18 @@ export function NotificationBell() {
     return `${base}/requests/${item.requestId}`;
   }
 
+  function historyHref() {
+    if (!user) return "/pemohon/requests";
+    const base = homePathForRole(user.role);
+    if (base === "/it") return "/pemohon/requests";
+    if (base === "/approval") {
+      const params = new URLSearchParams({ status: "" });
+      if (user.canDisburse && !user.canApprove) params.set("view", "approver");
+      return `/approval/requests?${params.toString()}`;
+    }
+    return "/pemohon/requests";
+  }
+
   return (
     <div className="relative" ref={rootRef}>
       <button
@@ -120,6 +132,18 @@ export function NotificationBell() {
               ))
             )}
           </ul>
+          <div className="border-t border-sli-line px-3 py-2">
+            <Link
+              href={historyHref()}
+              className="block text-center text-xs font-semibold text-sli-red hover:underline"
+              onClick={() => setOpen(false)}
+            >
+              Lihat semua riwayat pengajuan
+            </Link>
+            <p className="mt-1 text-center text-[10px] text-sli-muted">
+              Notifikasi menampilkan 30 terbaru. Riwayat lengkap ada di Antrian & Riwayat.
+            </p>
+          </div>
         </div>
       ) : null}
     </div>
