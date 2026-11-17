@@ -83,6 +83,13 @@ export function trackLabel(track: string): string {
   return track === "DIREKTUR" ? "Sekretariat" : "Finance";
 }
 
+/** Opwil = Operasi Wilayah. */
+export function opwilLabel(opwil?: string | null): string {
+  if (opwil === "OPWIL_1") return "Opwil 1";
+  if (opwil === "OPWIL_2") return "Opwil 2";
+  return "Belum di-assign";
+}
+
 export function typeLabel(type: string): string {
   switch (type) {
     case "BARANG":

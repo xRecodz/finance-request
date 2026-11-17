@@ -6,11 +6,12 @@ import { OutletCombobox } from "@/components/OutletCombobox";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { type CategoryMode, type SekretariatDest } from "@/lib/approverCategories";
-import { formatLocaleInput, formatRupiah, parseLocaleNumber } from "@/lib/format";
+import { formatLocaleInput, formatRupiah, opwilLabel, parseLocaleNumber } from "@/lib/format";
 import type {
   ApproverTrack,
   BusinessRoleOption,
   CategoryOption,
+  Opwil,
   RequestRow,
 } from "@/lib/types";
 
@@ -77,6 +78,11 @@ export function RequestForm({ mode, initial, onSave }: Props) {
   const [officerName, setOfficerName] = useState("Memuat...");
   const [categoryId, setCategoryId] = useState(initial?.category?.id || "");
   const [outletQuery, setOutletQuery] = useState(initial?.category?.name || "");
+  const [opwil, setOpwil] = useState<Opwil | "">(
+    initial?.category?.opwil === "OPWIL_1" || initial?.category?.opwil === "OPWIL_2"
+      ? initial.category.opwil
+      : ""
+  );
   const [title, setTitle] = useState(initial?.title || "");
   const [purpose, setPurpose] = useState(initial?.purpose || "");
   const [neededDate, setNeededDate] = useState(toDateInput(initial?.neededDate));
@@ -116,6 +122,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           setDest(configuredRole.defaultDestination);
           setCategoryId("");
           setOutletQuery("");
+          setOpwil("");
         }
       })
       .catch(() => {});
@@ -134,12 +141,17 @@ export function RequestForm({ mode, initial, onSave }: Props) {
 
   const visibleCategories = useMemo(() => {
     if (categoryMode === "outlet") {
-      return categories.filter((c) => c.kind === "OUTLET" || c.code.startsWith("OUT_"));
+      return categories.filter((c) => {
+        const isOutlet = c.kind === "OUTLET" || c.code.startsWith("OUT_");
+        if (!isOutlet) return false;
+        if (!opwil) return false;
+        return c.opwil === opwil;
+      });
     }
     return categories.filter(
       (c) => (c.kind === "STANDARD" || !c.kind || !c.code.startsWith("OUT_")) && c.code !== "OPS"
     );
-  }, [categories, categoryMode]);
+  }, [categories, categoryMode, opwil]);
 
   useEffect(() => {
     void api<{ data: { name: string } | null; message?: string }>(`/api/meta/disbursement-preview?track=${track}&destination=${dest}`)
@@ -158,10 +170,12 @@ export function RequestForm({ mode, initial, onSave }: Props) {
 
   useEffect(() => {
     if (mode !== "edit" || !initial?.category) return;
+    const matched = categories.find((c) => c.id === initial.category?.id);
     const isOutlet =
-      Boolean(initial.category.code?.startsWith("OUT_")) ||
-      categories.find((c) => c.id === initial.category?.id)?.kind === "OUTLET";
+      Boolean(initial.category.code?.startsWith("OUT_")) || matched?.kind === "OUTLET";
     setDest(isOutlet ? "OUTLET" : "HO");
+    const nextOpwil = initial.category.opwil || matched?.opwil;
+    if (nextOpwil === "OPWIL_1" || nextOpwil === "OPWIL_2") setOpwil(nextOpwil);
   }, [mode, initial?.category, categories]);
 
   const total = items.reduce(
@@ -184,12 +198,17 @@ export function RequestForm({ mode, initial, onSave }: Props) {
     if (categoryId) return categoryId;
     const name = outletQuery.trim();
     if (!name) return null;
+    if (!opwil) {
+      throw new ApiError("Pilih Opwil terlebih dahulu sebelum menambah outlet baru", 400);
+    }
     const res = await api<{ data: CategoryOption }>("/api/meta/outlets", {
       method: "POST",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, opwil }),
     });
     setCategories((prev) =>
-      prev.some((c) => c.id === res.data.id) ? prev : [...prev, { ...res.data, kind: "OUTLET" }]
+      prev.some((c) => c.id === res.data.id)
+        ? prev.map((c) => (c.id === res.data.id ? { ...c, ...res.data, kind: "OUTLET" } : c))
+        : [...prev, { ...res.data, kind: "OUTLET" }]
     );
     setCategoryId(res.data.id);
     return res.data.id;
@@ -343,6 +362,7 @@ export function RequestForm({ mode, initial, onSave }: Props) {
               setDest(e.target.value as SekretariatDest);
               setCategoryId("");
               setOutletQuery("");
+              setOpwil("");
             }}
             required
           >
@@ -364,22 +384,51 @@ export function RequestForm({ mode, initial, onSave }: Props) {
           </p>
         </label>
 
+        {categoryMode === "outlet" ? (
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold">Opwil (Operasi Wilayah)</span>
+            <select
+              className="input"
+              value={opwil}
+              onChange={(e) => {
+                setOpwil(e.target.value as Opwil | "");
+                setCategoryId("");
+                setOutletQuery("");
+              }}
+              required
+            >
+              <option value="">— pilih Opwil —</option>
+              <option value="OPWIL_1">{opwilLabel("OPWIL_1")}</option>
+              <option value="OPWIL_2">{opwilLabel("OPWIL_2")}</option>
+            </select>
+            <p className="mt-1 text-xs text-sli-muted">
+              Pilih wilayah operasi dulu, lalu pilih outlet di dalamnya.
+            </p>
+          </label>
+        ) : null}
+
         <label className="block">
           <span className="mb-1.5 block text-sm font-semibold">
-            {categoryMode === "outlet" ? "Kategori (Outlet)" : "Kategori (Head Office)"}
+            {categoryMode === "outlet" ? "Outlet" : "Kategori (Head Office)"}
           </span>
           {categoryMode === "outlet" ? (
-            <OutletCombobox
-              options={visibleCategories}
-              valueId={categoryId}
-              query={outletQuery}
-              required
-              onQueryChange={setOutletQuery}
-              onChange={(id, name) => {
-                setCategoryId(id);
-                if (name) setOutletQuery(name);
-              }}
-            />
+            opwil ? (
+              <OutletCombobox
+                options={visibleCategories}
+                valueId={categoryId}
+                query={outletQuery}
+                required
+                onQueryChange={setOutletQuery}
+                onChange={(id, name) => {
+                  setCategoryId(id);
+                  if (name) setOutletQuery(name);
+                }}
+              />
+            ) : (
+              <p className="rounded-xl border border-dashed border-sli-line px-3 py-3 text-sm text-sli-muted">
+                Pilih Opwil terlebih dahulu untuk menampilkan daftar outlet.
+              </p>
+            )
           ) : (
             <select
               className="input"

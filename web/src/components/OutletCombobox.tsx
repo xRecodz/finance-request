@@ -83,7 +83,9 @@ export function OutletCombobox({
         </ul>
       ) : null}
       <p className="mt-1 text-xs text-sli-muted">
-        Bisa diketik untuk mencari, atau tulis nama outlet baru.
+        {options.length === 0
+          ? "Belum ada outlet di Opwil ini. Ketik nama untuk menambah outlet baru, atau assign di Portal IT."
+          : "Bisa diketik untuk mencari, atau tulis nama outlet baru."}
       </p>
     </div>
   );

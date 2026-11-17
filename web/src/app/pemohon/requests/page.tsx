@@ -16,6 +16,8 @@ export default function PemohonRequestsPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [dateField, setDateField] = useState<"createdAt" | "submittedAt" | "disbursedAt">("createdAt");
+  const [sortBy, setSortBy] = useState<"status" | "totalAmount" | "createdAt" | "submittedAt">("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -27,6 +29,21 @@ export default function PemohonRequestsPage() {
     setPage(1);
   }
 
+  function toggleSort(field: "status" | "totalAmount" | "createdAt" | "submittedAt") {
+    if (sortBy === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortDir(field === "status" ? "asc" : "desc");
+    }
+    setPage(1);
+  }
+
+  function sortMark(field: typeof sortBy) {
+    if (sortBy !== field) return "";
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
+
   useEffect(() => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
@@ -36,6 +53,8 @@ export default function PemohonRequestsPage() {
     if (from) params.set("from", from);
     if (to) params.set("to", to);
     if (dateField !== "createdAt") params.set("dateField", dateField);
+    params.set("sortBy", sortBy);
+    params.set("sortDir", sortDir);
     params.set("page", String(page));
     params.set("pageSize", "20");
     params.set("as", "requester");
@@ -47,7 +66,7 @@ export default function PemohonRequestsPage() {
       setTotalPages(res.pagination.totalPages);
       setTotal(res.pagination.total);
     });
-  }, [q, status, track, type, from, to, dateField, page]);
+  }, [q, status, track, type, from, to, dateField, sortBy, sortDir, page]);
 
   return (
     <div className="space-y-5">
@@ -188,9 +207,21 @@ export default function PemohonRequestsPage() {
                 <th>Jenis</th>
                 <th>Jalur</th>
                 <th>Kepada</th>
-                <th>Status</th>
-                <th>Nominal</th>
-                <th>Tanggal</th>
+                <th>
+                  <button type="button" className="font-inherit hover:text-sli-ink" onClick={() => toggleSort("status")}>
+                    Status{sortMark("status")}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="font-inherit hover:text-sli-ink" onClick={() => toggleSort("totalAmount")}>
+                    Nominal{sortMark("totalAmount")}
+                  </button>
+                </th>
+                <th>
+                  <button type="button" className="font-inherit hover:text-sli-ink" onClick={() => toggleSort("submittedAt")}>
+                    Tanggal{sortMark("submittedAt")}
+                  </button>
+                </th>
                 <th />
               </tr>
             </thead>

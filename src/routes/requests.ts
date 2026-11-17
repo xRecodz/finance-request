@@ -83,9 +83,21 @@ const listQuerySchema = z.object({
   /** Field tanggal untuk filter from/to (default: createdAt). */
   dateField: z.enum(["createdAt", "submittedAt", "disbursedAt"]).default("createdAt"),
   q: z.string().trim().optional(),
+  sortBy: z.enum(["status", "totalAmount", "createdAt", "submittedAt"]).default("createdAt"),
+  sortDir: z.enum(["asc", "desc"]).default("desc"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+function listOrderBy(
+  sortBy: z.infer<typeof listQuerySchema>["sortBy"],
+  sortDir: z.infer<typeof listQuerySchema>["sortDir"]
+): Prisma.RequestOrderByWithRelationInput[] {
+  if (sortBy === "status") return [{ status: sortDir }, { createdAt: "desc" }];
+  if (sortBy === "totalAmount") return [{ totalAmount: sortDir }, { createdAt: "desc" }];
+  if (sortBy === "submittedAt") return [{ submittedAt: sortDir }, { createdAt: sortDir }];
+  return [{ createdAt: sortDir }];
+}
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
@@ -338,7 +350,7 @@ requestsRouter.get(
       prisma.request.findMany({
         where,
         include: requestListInclude,
-        orderBy: { createdAt: "desc" },
+        orderBy: listOrderBy(query.sortBy, query.sortDir),
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),
@@ -403,7 +415,7 @@ requestsRouter.get(
         manager: { select: { id: true, nip: true, name: true } },
         approver: { select: { id: true, nip: true, name: true } },
         disbursementOfficer: { select: { id: true, nip: true, name: true } },
-        category: { select: { id: true, code: true, name: true } },
+        category: { select: { id: true, code: true, name: true, opwil: true } },
         items: { orderBy: { sortOrder: "asc" } },
         lpj: {
           select: {
@@ -428,6 +440,7 @@ requestsRouter.get(
       "Tujuan",
       "Kategori Kode",
       "Kategori / Outlet",
+      "Opwil",
       "Status",
       "Pemohon NIP",
       "Pemohon",
@@ -486,6 +499,13 @@ requestsRouter.get(
           csvEscape(row.destination),
           csvEscape(row.category?.code ?? ""),
           csvEscape(row.category?.name ?? ""),
+          csvEscape(
+            row.category?.opwil === "OPWIL_1"
+              ? "Opwil 1"
+              : row.category?.opwil === "OPWIL_2"
+                ? "Opwil 2"
+                : ""
+          ),
           csvEscape(STATUS_LABEL[row.status] ?? row.status),
           csvEscape(row.requester.nip),
           csvEscape(row.requester.name),

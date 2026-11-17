@@ -6,7 +6,8 @@ import { PasswordInput } from "@/components/PasswordInput";
 
 type Person = { id: string; nip: string; name: string; isActive: boolean } | null;
 type BusinessRole = { id: string; code: string; name: string; supervisorLabel: string; defaultTrack: "DIREKTUR" | "FINANCE"; defaultDestination: "HO" | "OUTLET"; isActive: boolean; sortOrder: number };
-type Category = { id: string; code: string; name: string; description?: string | null; kind: "STANDARD" | "OUTLET"; isActive: boolean; sortOrder: number };
+type Opwil = "OPWIL_1" | "OPWIL_2";
+type Category = { id: string; code: string; name: string; description?: string | null; kind: "STANDARD" | "OUTLET"; opwil?: Opwil | null; isActive: boolean; sortOrder: number };
 type ManagerRoute = BusinessRole & { businessRole: string; manager: Person; configured: boolean };
 type PayoutRoute = { track: string; destination: string; officer: Person; configured: boolean };
 type Data = { businessRoles: BusinessRole[]; categories: Category[]; managerRoutes: ManagerRoute[]; payoutRoutes: PayoutRoute[]; defaultPasswordConfigured: boolean };
@@ -14,13 +15,27 @@ type RequestPreview = { number: string; title: string; status: string; manager: 
 
 type NewRole = { code: string; name: string; supervisorLabel: string; defaultTrack: "DIREKTUR" | "FINANCE"; defaultDestination: "HO" | "OUTLET"; sortOrder: number };
 const defaultRole: NewRole = { code: "", name: "", supervisorLabel: "Manager", defaultTrack: "FINANCE", defaultDestination: "HO", sortOrder: 500 };
-type NewCategory = { code: string; name: string; description: string; kind: "STANDARD" | "OUTLET"; sortOrder: number };
-const defaultCategory: NewCategory = { code: "", name: "", description: "", kind: "STANDARD", sortOrder: 500 };
+type NewCategory = { code: string; name: string; description: string; kind: "STANDARD" | "OUTLET"; opwil: Opwil | ""; sortOrder: number };
+const defaultCategory: NewCategory = { code: "", name: "", description: "", kind: "STANDARD", opwil: "", sortOrder: 500 };
+type NewOutlet = { name: string; opwil: Opwil | "" };
+const defaultOutlet: NewOutlet = { name: "", opwil: "" };
+
+function makeOutletCode(name: string) {
+  const slug = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40);
+  return `OUT_${slug || "UNKNOWN"}`;
+}
+
+function opwilLabel(opwil?: string | null) {
+  if (opwil === "OPWIL_1") return "Opwil 1";
+  if (opwil === "OPWIL_2") return "Opwil 2";
+  return "Belum di-assign";
+}
 
 export default function ItSettingsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [newRole, setNewRole] = useState(defaultRole);
   const [newCategory, setNewCategory] = useState(defaultCategory);
+  const [newOutlet, setNewOutlet] = useState(defaultOutlet);
   const [role, setRole] = useState("OPERASIONAL");
   const [outletId, setOutletId] = useState("");
   const [managerNip, setManagerNip] = useState("");
@@ -52,7 +67,11 @@ export default function ItSettingsPage() {
     finally { setBusy(""); }
   }
 
-  const outlets = data?.categories.filter((item) => item.kind === "OUTLET" && item.isActive) || [];
+  const outlets = data?.categories.filter((item) => item.kind === "OUTLET") || [];
+  const activeOutlets = outlets.filter((item) => item.isActive);
+  const outletsUnassigned = activeOutlets.filter((item) => !item.opwil);
+  const outletsOpwil1 = activeOutlets.filter((item) => item.opwil === "OPWIL_1");
+  const outletsOpwil2 = activeOutlets.filter((item) => item.opwil === "OPWIL_2");
   return <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 md:px-6">
     <div><h1 className="text-2xl font-bold text-sli-ink">Master Data, Routing & Password</h1><p className="mt-1 text-sm text-sli-muted">Kelola divisi organisasi, kategori, atasan, dan petugas pencairan. Perubahan disimpan ke database.</p></div>
     {error ? <p className="rounded-xl bg-sli-red-soft p-3 text-sm text-sli-red">{error}</p> : null}
@@ -70,14 +89,86 @@ export default function ItSettingsPage() {
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data?.businessRoles.map((item) => <form key={item.id} className="rounded-xl border border-sli-line p-3" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void save(`/api/settings/business-roles/${item.id}`, { name: form.get("name"), supervisorLabel: form.get("supervisorLabel"), defaultTrack: form.get("defaultTrack"), defaultDestination: form.get("defaultDestination"), sortOrder: Number(form.get("sortOrder")), isActive: form.get("isActive") === "on" }, `role-${item.id}`, "PATCH"); }}><p className="text-xs font-semibold text-sli-muted">{item.code}</p><input name="name" className="input mt-2" defaultValue={item.name} required /><input name="supervisorLabel" className="input mt-2" defaultValue={item.supervisorLabel} required /><div className="mt-2 grid grid-cols-2 gap-2"><select name="defaultTrack" className="input" defaultValue={item.defaultTrack}><option value="FINANCE">Finance</option><option value="DIREKTUR">Sekretariat</option></select><select name="defaultDestination" className="input" defaultValue={item.defaultDestination}><option value="HO">Head Office</option><option value="OUTLET">Outlet</option></select></div><div className="mt-2 flex items-center justify-between gap-2 text-xs"><label><input name="isActive" type="checkbox" defaultChecked={item.isActive} /> Aktif</label><input name="sortOrder" className="input !w-20" type="number" min="0" defaultValue={item.sortOrder} /><button className="btn-ghost rounded-lg px-3 py-2 font-semibold" disabled={Boolean(busy)}>Simpan</button></div></form>)}</div>
     </section>
 
-    <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Kategori pengajuan</h2><p className="mt-1 text-sm text-sli-muted">Kategori Head Office tampil saat tujuan Head Office. Kategori Outlet tampil saat tujuan Outlet.</p>
-      <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); void save("/api/settings/categories", newCategory, "new-category", "POST").then(() => setNewCategory(defaultCategory)); }}><input className="input" value={newCategory.code} onChange={(e) => setNewCategory({ ...newCategory, code: e.target.value })} placeholder="Kode kategori" required /><input className="input" value={newCategory.name} onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })} placeholder="Nama kategori" required /><select className="input" value={newCategory.kind} onChange={(e) => setNewCategory({ ...newCategory, kind: e.target.value as "STANDARD" | "OUTLET" })}><option value="STANDARD">Head Office</option><option value="OUTLET">Outlet</option></select><input className="input" value={newCategory.description} onChange={(e) => setNewCategory({ ...newCategory, description: e.target.value })} placeholder="Keterangan (opsional)" /><input className="input" type="number" min="0" value={newCategory.sortOrder} onChange={(e) => setNewCategory({ ...newCategory, sortOrder: Number(e.target.value) })} /><button className="btn-primary rounded-xl px-4" disabled={Boolean(busy)}>Tambah kategori</button></form>
-      <div className="mt-4 grid gap-2 md:grid-cols-2">{data?.categories.map((item) => <form key={item.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-sli-line p-3 text-sm" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void save(`/api/settings/categories/${item.id}`, { name: form.get("name"), description: form.get("description"), kind: form.get("kind"), sortOrder: Number(form.get("sortOrder")), isActive: form.get("isActive") === "on" }, `category-${item.id}`, "PATCH"); }}><span className="w-20 font-mono text-xs text-sli-muted">{item.code}</span><input name="name" className="input min-w-32 flex-1" defaultValue={item.name} required /><select name="kind" className="input !w-auto" defaultValue={item.kind}><option value="STANDARD">HO</option><option value="OUTLET">Outlet</option></select><input name="description" className="input min-w-28 flex-1" defaultValue={item.description || ""} placeholder="Keterangan" /><input name="sortOrder" className="input !w-20" type="number" min="0" defaultValue={item.sortOrder} /><label className="text-xs"><input name="isActive" type="checkbox" defaultChecked={item.isActive} /> Aktif</label><button className="btn-ghost rounded-lg px-3 py-2 font-semibold" disabled={Boolean(busy)}>Simpan</button></form>)}</div>
+    <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Kategori pengajuan (Head Office)</h2><p className="mt-1 text-sm text-sli-muted">Kategori ini tampil saat tujuan Head Office. Outlet dikelola di bagian Opwil di bawah.</p>
+      <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); void save("/api/settings/categories", { ...newCategory, kind: "STANDARD", opwil: null }, "new-category", "POST").then(() => setNewCategory(defaultCategory)); }}><input className="input" value={newCategory.code} onChange={(e) => setNewCategory({ ...newCategory, code: e.target.value })} placeholder="Kode kategori" required /><input className="input" value={newCategory.name} onChange={(e) => setNewCategory({ ...newCategory, name: e.target.value })} placeholder="Nama kategori" required /><input className="input" value={newCategory.description} onChange={(e) => setNewCategory({ ...newCategory, description: e.target.value })} placeholder="Keterangan (opsional)" /><input className="input" type="number" min="0" value={newCategory.sortOrder} onChange={(e) => setNewCategory({ ...newCategory, sortOrder: Number(e.target.value) })} /><button className="btn-primary rounded-xl px-4" disabled={Boolean(busy)}>Tambah kategori HO</button></form>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">{data?.categories.filter((item) => item.kind === "STANDARD").map((item) => <form key={item.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-sli-line p-3 text-sm" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void save(`/api/settings/categories/${item.id}`, { name: form.get("name"), description: form.get("description"), kind: "STANDARD", opwil: null, sortOrder: Number(form.get("sortOrder")), isActive: form.get("isActive") === "on" }, `category-${item.id}`, "PATCH"); }}><span className="w-20 font-mono text-xs text-sli-muted">{item.code}</span><input name="name" className="input min-w-32 flex-1" defaultValue={item.name} required /><input name="description" className="input min-w-28 flex-1" defaultValue={item.description || ""} placeholder="Keterangan" /><input name="sortOrder" className="input !w-20" type="number" min="0" defaultValue={item.sortOrder} /><label className="text-xs"><input name="isActive" type="checkbox" defaultChecked={item.isActive} /> Aktif</label><button className="btn-ghost rounded-lg px-3 py-2 font-semibold" disabled={Boolean(busy)}>Simpan</button></form>)}</div>
+    </section>
+
+    <section className="panel rounded-2xl p-5">
+      <h2 className="text-lg font-bold">Outlet &amp; Opwil (Operasi Wilayah)</h2>
+      <p className="mt-1 text-sm text-sli-muted">Assign outlet ke Opwil 1 atau Opwil 2. Di form pengajuan, user pilih Opwil dulu baru outlet.</p>
+      <form
+        className="mt-4 grid gap-3 md:grid-cols-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!newOutlet.opwil) { setError("Pilih Opwil untuk outlet baru"); return; }
+          void save("/api/settings/categories", {
+            code: makeOutletCode(newOutlet.name),
+            name: newOutlet.name.trim(),
+            description: `Outlet ${opwilLabel(newOutlet.opwil)}`,
+            kind: "OUTLET",
+            opwil: newOutlet.opwil,
+            sortOrder: 9000,
+          }, "new-outlet", "POST").then(() => setNewOutlet(defaultOutlet));
+        }}
+      >
+        <input className="input" value={newOutlet.name} onChange={(e) => setNewOutlet({ ...newOutlet, name: e.target.value })} placeholder="Nama outlet baru" required />
+        <select className="input" value={newOutlet.opwil} onChange={(e) => setNewOutlet({ ...newOutlet, opwil: e.target.value as Opwil | "" })} required>
+          <option value="">Pilih Opwil</option>
+          <option value="OPWIL_1">Opwil 1</option>
+          <option value="OPWIL_2">Opwil 2</option>
+        </select>
+        <button className="btn-primary rounded-xl px-4" disabled={Boolean(busy)}>Tambah outlet</button>
+      </form>
+
+      {[
+        { title: "Belum di-assign", rows: outletsUnassigned, tone: "text-amber-700" },
+        { title: "Opwil 1", rows: outletsOpwil1, tone: "text-sli-ink" },
+        { title: "Opwil 2", rows: outletsOpwil2, tone: "text-sli-ink" },
+      ].map((group) => (
+        <div key={group.title} className="mt-5">
+          <h3 className={`text-sm font-bold ${group.tone}`}>{group.title} · {group.rows.length}</h3>
+          {group.rows.length === 0 ? (
+            <p className="mt-2 text-sm text-sli-muted">Tidak ada outlet.</p>
+          ) : (
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {group.rows.map((item) => (
+                <form
+                  key={item.id}
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-sli-line p-3 text-sm"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const form = new FormData(event.currentTarget);
+                    const nextOpwil = String(form.get("opwil") || "");
+                    void save(`/api/settings/categories/${item.id}`, {
+                      name: form.get("name"),
+                      description: item.description || null,
+                      kind: "OUTLET",
+                      opwil: nextOpwil || null,
+                      sortOrder: item.sortOrder,
+                      isActive: form.get("isActive") === "on",
+                    }, `outlet-${item.id}`, "PATCH");
+                  }}
+                >
+                  <input name="name" className="input min-w-32 flex-1" defaultValue={item.name} required />
+                  <select name="opwil" className="input !w-auto" defaultValue={item.opwil || ""} required>
+                    <option value="">Pilih Opwil</option>
+                    <option value="OPWIL_1">Opwil 1</option>
+                    <option value="OPWIL_2">Opwil 2</option>
+                  </select>
+                  <label className="text-xs"><input name="isActive" type="checkbox" defaultChecked={item.isActive} /> Aktif</label>
+                  <button className="btn-ghost rounded-lg px-3 py-2 font-semibold" disabled={Boolean(busy)}>Simpan</button>
+                </form>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </section>
 
     <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Atasan per divisi</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data?.managerRoutes.map((item) => <form key={item.businessRole} className="rounded-xl border border-sli-line p-3" onSubmit={(event) => { event.preventDefault(); const input = event.currentTarget.elements.namedItem("nip") as HTMLInputElement; void save("/api/settings/manager-route", { businessRole: item.businessRole, managerNip: input.value.trim() }, item.businessRole); }}><label className="text-sm font-semibold">{item.name} · {item.supervisorLabel}</label><p className="mb-2 text-xs text-sli-muted">{item.manager ? `${item.manager.name} · ${item.manager.nip}` : "Belum diatur"}</p><div className="flex gap-2"><input name="nip" defaultValue={item.manager?.nip || ""} className="input min-w-0 flex-1" required /><button disabled={Boolean(busy)} className="btn-primary rounded-lg px-3 text-sm">Simpan</button></div></form>)}</div></section>
 
-    <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Atasan khusus outlet</h2><form className="mt-4 grid gap-3 md:grid-cols-4" onSubmit={(event) => { event.preventDefault(); void save("/api/settings/manager-route", { businessRole: role, outletCategoryId: outletId, managerNip: managerNip.trim() }, "outlet"); }}><select className="input" value={role} onChange={(event) => setRole(event.target.value)}>{data?.businessRoles.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select><select className="input" value={outletId} onChange={(event) => setOutletId(event.target.value)} required><option value="">Pilih outlet</option>{outlets.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input className="input" value={managerNip} onChange={(event) => setManagerNip(event.target.value)} placeholder="NIP atasan" required /><button className="btn-primary rounded-xl px-4" disabled={Boolean(busy)}>Simpan</button></form></section>
+    <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Atasan khusus outlet</h2><form className="mt-4 grid gap-3 md:grid-cols-4" onSubmit={(event) => { event.preventDefault(); void save("/api/settings/manager-route", { businessRole: role, outletCategoryId: outletId, managerNip: managerNip.trim() }, "outlet"); }}><select className="input" value={role} onChange={(event) => setRole(event.target.value)}>{data?.businessRoles.filter((item) => item.isActive).map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select><select className="input" value={outletId} onChange={(event) => setOutletId(event.target.value)} required><option value="">Pilih outlet</option>{activeOutlets.map((item) => <option key={item.id} value={item.id}>{item.name}{item.opwil ? ` · ${opwilLabel(item.opwil)}` : ""}</option>)}</select><input className="input" value={managerNip} onChange={(event) => setManagerNip(event.target.value)} placeholder="NIP atasan" required /><button className="btn-primary rounded-xl px-4" disabled={Boolean(busy)}>Simpan</button></form></section>
 
     <section className="panel rounded-2xl p-5"><h2 className="text-lg font-bold">Petugas pencairan</h2><div className="mt-4 grid gap-3 sm:grid-cols-2">{data?.payoutRoutes.map((item) => <form key={`${item.track}:${item.destination}`} className="rounded-xl border border-sli-line p-3" onSubmit={(event) => { event.preventDefault(); const input = event.currentTarget.elements.namedItem("nip") as HTMLInputElement; void save("/api/settings/payout-route", { track: item.track, destination: item.destination, officerNip: input.value.trim() }, `${item.track}:${item.destination}`); }}><label className="text-sm font-semibold">{item.track === "DIREKTUR" ? "Sekretariat" : "Finance"} → {item.destination === "HO" ? "Head Office" : "Outlet"}</label><p className="mb-2 text-xs text-sli-muted">{item.officer ? `${item.officer.name} · ${item.officer.nip}` : "Belum diatur"}</p><div className="flex gap-2"><input name="nip" defaultValue={item.officer?.nip || ""} className="input min-w-0 flex-1" required /><button disabled={Boolean(busy)} className="btn-primary rounded-lg px-3 text-sm">Simpan</button></div></form>)}</div></section>
 

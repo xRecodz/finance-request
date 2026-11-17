@@ -82,15 +82,17 @@ metaRouter.get(
   "/categories",
   asyncHandler<AuthedRequest>(async (req, res) => {
     const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
-    const where =
-      kind === "OUTLET" || kind === "STANDARD"
-        ? { isActive: true, kind: kind as CategoryKind }
-        : { isActive: true };
+    const opwil = typeof req.query.opwil === "string" ? req.query.opwil : undefined;
+    const where: { isActive: true; kind?: CategoryKind; opwil?: "OPWIL_1" | "OPWIL_2" } = {
+      isActive: true,
+    };
+    if (kind === "OUTLET" || kind === "STANDARD") where.kind = kind as CategoryKind;
+    if (opwil === "OPWIL_1" || opwil === "OPWIL_2") where.opwil = opwil;
 
     const categories = await prisma.category.findMany({
       where,
       orderBy: [{ kind: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, code: true, name: true, kind: true, description: true },
+      select: { id: true, code: true, name: true, kind: true, description: true, opwil: true },
     });
     res.json({ data: categories });
   })
@@ -101,7 +103,10 @@ metaRouter.post(
   "/outlets",
   asyncHandler<AuthedRequest>(async (req, res) => {
     const body = z
-      .object({ name: z.string().trim().min(2).max(120) })
+      .object({
+        name: z.string().trim().min(2).max(120),
+        opwil: z.enum(["OPWIL_1", "OPWIL_2"]),
+      })
       .parse(req.body);
     const name = body.name.trim();
     const code = outletCode(name);
@@ -113,20 +118,16 @@ metaRouter.post(
       },
     });
     if (existing) {
-      if (!existing.isActive) {
-        await prisma.category.update({
-          where: { id: existing.id },
-          data: { isActive: true, name },
-        });
-      }
-      res.json({
+      const updated = await prisma.category.update({
+        where: { id: existing.id },
         data: {
-          id: existing.id,
-          code: existing.code,
-          name: existing.name,
-          kind: CategoryKind.OUTLET,
+          isActive: true,
+          name,
+          opwil: existing.opwil ?? body.opwil,
         },
+        select: { id: true, code: true, name: true, kind: true, opwil: true },
       });
+      res.json({ data: updated });
       return;
     }
 
@@ -135,11 +136,12 @@ metaRouter.post(
         code,
         name,
         kind: CategoryKind.OUTLET,
+        opwil: body.opwil,
         sortOrder: 9000,
         description: "Outlet (manual)",
         isActive: true,
       },
-      select: { id: true, code: true, name: true, kind: true },
+      select: { id: true, code: true, name: true, kind: true, opwil: true },
     });
     res.status(201).json({ data: created });
   })

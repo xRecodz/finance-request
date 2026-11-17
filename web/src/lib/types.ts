@@ -2,6 +2,7 @@ export type Portal = "PEMOHON" | "APPROVAL" | "IT";
 
 export type UserRole = "PEMOHON" | "APPROVER" | "MANAGER" | "ADMIN" | "IT";
 export type ApproverTrack = "DIREKTUR" | "FINANCE";
+export type Opwil = "OPWIL_1" | "OPWIL_2";
 
 export function homePathForRole(role: UserRole): string {
   if (role === "IT" || role === "ADMIN") return "/it";
@@ -92,7 +93,7 @@ export type RequestRow = {
   approver: { id: string; nip: string; name: string; position?: string | null };
   disbursementOfficer?: { id: string; nip: string; name: string } | null;
   disbursements?: Array<{ id: string; amount: number; disbursedAt: string; reference?: string | null; status: string }>;
-  category?: { id: string; code: string; name: string } | null;
+  category?: { id: string; code: string; name: string; opwil?: Opwil | null } | null;
   itemCount?: number;
   purpose?: string;
   items?: RequestItem[];
@@ -182,6 +183,8 @@ export type CategoryOption = {
   code: string;
   name: string;
   kind?: "STANDARD" | "OUTLET";
+  opwil?: Opwil | null;
+  description?: string | null;
 };
 
 export type BusinessRoleOption = {

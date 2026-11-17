@@ -42,7 +42,7 @@ export const requestListInclude = {
   manager: { select: userBriefSelect },
   approver: { select: userBriefSelect },
   disbursementOfficer: { select: userBriefSelect },
-  category: { select: { id: true, code: true, name: true } },
+  category: { select: { id: true, code: true, name: true, opwil: true } },
   lpj: { select: { id: true, status: true, submittedAt: true } },
   _count: { select: { items: true, attachments: true } },
 } satisfies Prisma.RequestInclude;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { ApproverTrack, CategoryKind, UserRole } from "@prisma/client";
+import { ApproverTrack, CategoryKind, Opwil, UserRole } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { hashPassword } from "../lib/auth";
@@ -157,14 +157,32 @@ const categorySchema = z.object({
   name: z.string().trim().min(2).max(120),
   description: z.string().trim().max(191).optional().nullable(),
   kind: z.nativeEnum(CategoryKind),
+  opwil: z.nativeEnum(Opwil).optional().nullable(),
   sortOrder: z.coerce.number().int().min(0).max(9999).default(500),
 });
+
+function resolveCategoryOpwil(kind: CategoryKind, opwil?: Opwil | null) {
+  if (kind !== CategoryKind.OUTLET) return null;
+  return opwil ?? null;
+}
 
 settingsRouter.post("/categories", asyncHandler<AuthedRequest>(async (req, res) => {
   const body = categorySchema.parse(req.body);
   const code = body.code.toUpperCase().replace(/\s+/g, "_");
   if (!/^[A-Z][A-Z0-9_]*$/.test(code)) throw new HttpError(400, "Kode kategori hanya boleh huruf, angka, dan garis bawah");
-  const created = await prisma.category.create({ data: { ...body, code, description: body.description || null } });
+  if (body.kind === CategoryKind.OUTLET && !body.opwil) {
+    throw new HttpError(400, "Outlet wajib memilih Opwil (Operasi Wilayah) 1 atau 2");
+  }
+  const created = await prisma.category.create({
+    data: {
+      code,
+      name: body.name,
+      description: body.description || null,
+      kind: body.kind,
+      opwil: resolveCategoryOpwil(body.kind, body.opwil),
+      sortOrder: body.sortOrder,
+    },
+  });
   logActivity({ actorId: req.user!.id, action: "CREATE_CATEGORY", entity: "Category", entityId: created.id, detail: `${created.code} — ${created.name}`, ip: req.ip });
   res.status(201).json({ data: created, message: `Kategori ${created.name} ditambahkan` });
 }));
@@ -173,7 +191,24 @@ settingsRouter.patch("/categories/:id", asyncHandler<AuthedRequest>(async (req, 
   const body = categorySchema.omit({ code: true }).extend({ isActive: z.boolean().optional() }).parse(req.body);
   const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
   if (!existing) throw new HttpError(404, "Kategori tidak ditemukan");
-  const updated = await prisma.category.update({ where: { id: existing.id }, data: { ...body, description: body.description || null } });
+  const nextOpwil = resolveCategoryOpwil(
+    body.kind,
+    body.opwil === undefined ? existing.opwil : body.opwil
+  );
+  if (body.kind === CategoryKind.OUTLET && !nextOpwil) {
+    throw new HttpError(400, "Outlet wajib memilih Opwil (Operasi Wilayah) 1 atau 2");
+  }
+  const updated = await prisma.category.update({
+    where: { id: existing.id },
+    data: {
+      name: body.name,
+      description: body.description || null,
+      kind: body.kind,
+      opwil: nextOpwil,
+      sortOrder: body.sortOrder,
+      ...(body.isActive === undefined ? {} : { isActive: body.isActive }),
+    },
+  });
   logActivity({ actorId: req.user!.id, action: "UPDATE_CATEGORY", entity: "Category", entityId: updated.id, detail: `${updated.code} — ${updated.name}`, ip: req.ip });
   res.json({ data: updated, message: `Kategori ${updated.name} diperbarui` });
 }));

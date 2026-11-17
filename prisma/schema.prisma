@@ -67,6 +67,12 @@ enum CategoryKind {
   OUTLET
 }
 
+/// Operasi Wilayah — pengelompokan outlet.
+enum Opwil {
+  OPWIL_1
+  OPWIL_2
+}
+
 // ── Master ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -120,6 +126,8 @@ model Category {
   name        String
   description String?
   kind        CategoryKind @default(STANDARD)
+  /// Hanya relevan untuk kind OUTLET (Opwil 1 / Opwil 2).
+  opwil       Opwil?
   isActive    Boolean      @default(true)
   sortOrder   Int          @default(0)
   createdAt   DateTime     @default(now())
@@ -129,6 +137,7 @@ model Category {
   homeUsers User[] @relation("UserHomeOutlet")
 
   @@index([kind, isActive, sortOrder])
+  @@index([kind, opwil, isActive])
 }
 
 /// Master divisi organisasi. Berbeda dari UserRole yang mengatur hak akses aplikasi.

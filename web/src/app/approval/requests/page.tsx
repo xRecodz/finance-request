@@ -38,11 +38,28 @@ function ApprovalRequestsContent() {
   );
   const [requesterId, setRequesterId] = useState(searchParams.get("requesterId") || "");
   const [requesterName, setRequesterName] = useState(searchParams.get("requesterName") || "");
+  const [sortBy, setSortBy] = useState<"status" | "totalAmount" | "createdAt" | "submittedAt">("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
+
+  function toggleSort(field: "status" | "totalAmount" | "createdAt" | "submittedAt") {
+    if (sortBy === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortDir(field === "status" ? "asc" : "desc");
+    }
+    setPage(1);
+  }
+
+  function sortMark(field: typeof sortBy) {
+    if (sortBy !== field) return "";
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -84,6 +101,8 @@ function ApprovalRequestsContent() {
     if (to) params.set("to", to);
     if (dateField !== "createdAt") params.set("dateField", dateField);
     if (requesterId) params.set("requesterId", requesterId);
+    params.set("sortBy", sortBy);
+    params.set("sortDir", sortDir);
     params.set("page", String(page));
     params.set("pageSize", "20");
     void api<{
@@ -97,7 +116,7 @@ function ApprovalRequestsContent() {
         setRequesterName(res.data[0].requester.name);
       }
     });
-  }, [q, status, track, from, to, dateField, requesterId, requesterName, page, view]);
+  }, [q, status, track, from, to, dateField, requesterId, requesterName, page, view, sortBy, sortDir]);
 
   async function onExport() {
     setError("");
@@ -300,9 +319,21 @@ function ApprovalRequestsContent() {
               <th className="px-4 py-3">Pemohon</th>
               <th className="px-4 py-3">Judul</th>
               <th className="px-4 py-3">Jalur</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Nominal</th>
-              <th className="px-4 py-3">Tanggal</th>
+              <th className="px-4 py-3">
+                <button type="button" className="font-inherit uppercase tracking-[0.08em] hover:text-sli-ink" onClick={() => toggleSort("status")}>
+                  Status{sortMark("status")}
+                </button>
+              </th>
+              <th className="px-4 py-3 text-right">
+                <button type="button" className="font-inherit uppercase tracking-[0.08em] hover:text-sli-ink" onClick={() => toggleSort("totalAmount")}>
+                  Nominal{sortMark("totalAmount")}
+                </button>
+              </th>
+              <th className="px-4 py-3">
+                <button type="button" className="font-inherit uppercase tracking-[0.08em] hover:text-sli-ink" onClick={() => toggleSort("submittedAt")}>
+                  Tanggal{sortMark("submittedAt")}
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
